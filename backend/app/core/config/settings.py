@@ -1,16 +1,25 @@
 from functools import lru_cache
-from typing import Literal
+from pathlib import Path
+from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+_BACKEND_DIR = Path(__file__).resolve().parents[3]
+_REPO_ROOT = _BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Local backend overrides first; monorepo root `.env` wins for shared keys.
+        env_file=(
+            _BACKEND_DIR / ".env",
+            _REPO_ROOT / ".env",
+        ),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Application
@@ -25,17 +34,46 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://medvault:changeme@localhost:5432/medvault"
     )
 
-    # Security (used by future auth module)
+    # Security
     secret_key: str = "changeme-generate-a-secure-key"
+    jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
+    refresh_token_cookie_name: str = "refresh_token"
+    refresh_token_cookie_path: str = "/auth"
 
-    # CORS
-    cors_origins: list[str] = Field(default=["http://localhost:3000"])
+    # CORS (comma-separated in .env, not JSON)
+    cors_origins: Annotated[list[str], NoDecode] = Field(default=["http://localhost:3000"])
 
-    # File storage (used by future documents module)
+    # File storage
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 25
+
+    # OCR / document processing
+    tesseract_cmd: str | None = None
+    ocr_pdf_dpi: int = 200
+    ocr_min_native_text_chars: int = 20
+    document_worker_concurrency: int = 2
+
+    # LLM / classification
+    llm_provider: str = "openai"
+    openai_api_key: str | None = None
+    openai_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        validation_alias=AliasChoices("DEFAULT_BASE_URL", "OPENAI_BASE_URL"),
+    )
+    llm_model: str = "gpt-4o-mini"
+    llm_timeout_seconds: float = 60.0
+
+    # Embeddings
+    embedding_provider: str = "openai"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    embedding_timeout_seconds: float = 60.0
+
+    # RAG / chat
+    rag_top_k: int = 5
+    rag_min_score: float = 0.15
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -1,0 +1,39 @@
+from enum import StrEnum
+
+# Default dimension for OpenAI text-embedding-3-small (and compatible models).
+EMBEDDING_DIMENSIONS = 1536
+
+
+class DocumentStatus(StrEnum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    REJECTED = "rejected"
+
+
+class DocumentType(StrEnum):
+    PRESCRIPTION = "prescription"
+    LAB_REPORT = "lab_report"
+    HOSPITAL_BILL = "hospital_bill"
+    PHARMACY_BILL = "pharmacy_bill"
+    DISCHARGE_SUMMARY = "discharge_summary"
+    IMAGING_REPORT = "imaging_report"
+    OTHER = "other"
+    UNRELATED = "unrelated"
+
+
+class TimelineEventType(StrEnum):
+    DOCUMENT = "document"
+    ADMISSION = "admission"
+    DISCHARGE = "discharge"
+    DIAGNOSIS = "diagnosis"
+    PROCEDURE = "procedure"
+    LAB_RESULT = "lab_result"
+    MEDICATION = "medication"
+    ALLERGY = "allergy"
+    DEVICE = "device"
+    VACCINATION = "vaccination"
+    FOLLOW_UP = "follow_up"
+    VISIT = "visit"
+    IMAGING = "imaging"

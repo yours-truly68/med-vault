@@ -7,10 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config.settings import Settings, get_settings
+from app.core.database import models as _models  # noqa: F401
 from app.core.database.session import Database
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.middleware import RequestLoggingMiddleware
+from app.processing.processor import DocumentProcessor
+from app.workers.in_process import InProcessDocumentWorker
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +24,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database = Database(settings)
     app.state.database = database
 
+    processor = DocumentProcessor(database, settings)
+    document_worker = InProcessDocumentWorker(
+        processor,
+        concurrency=settings.document_worker_concurrency,
+    )
+    await document_worker.start()
+    app.state.document_worker = document_worker
+
     logger.info("Starting %s v%s [%s]", settings.app_name, settings.app_version, settings.environment)
 
     yield
 
+    await document_worker.stop()
     await database.dispose()
     logger.info("Shutdown complete")
 

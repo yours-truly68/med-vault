@@ -1,3 +1,5 @@
+import type { ApiErrorBody } from "@/types/api";
+
 import { ApiError } from "./errors";
 
 const API_BASE_URL =
@@ -8,15 +10,21 @@ export type RequestOptions = Omit<RequestInit, "body"> & {
   token?: string | null;
 };
 
-type ErrorBody = {
+type LegacyErrorBody = {
   detail?: string | { msg?: string }[];
   message?: string;
   code?: string;
 };
 
+type ErrorBody = ApiErrorBody & LegacyErrorBody;
+
 function resolveErrorMessage(payload: ErrorBody | null, status: number): string {
   if (!payload) {
     return `Request failed with status ${status}`;
+  }
+
+  if (payload.error?.message) {
+    return payload.error.message;
   }
 
   if (typeof payload.detail === "string") {
@@ -32,6 +40,14 @@ function resolveErrorMessage(payload: ErrorBody | null, status: number): string 
   }
 
   return `Request failed with status ${status}`;
+}
+
+function resolveErrorCode(payload: ErrorBody | null): string | undefined {
+  return payload?.error?.code ?? payload?.code;
+}
+
+function resolveErrorDetails(payload: ErrorBody | null): unknown {
+  return payload?.error?.details ?? payload;
 }
 
 async function parseJsonSafe<T>(response: Response): Promise<T | null> {
@@ -85,8 +101,8 @@ export async function apiClient<T>(
   if (!response.ok) {
     throw new ApiError(resolveErrorMessage(payload, response.status), {
       status: response.status,
-      code: payload?.code,
-      details: payload,
+      code: resolveErrorCode(payload),
+      details: resolveErrorDetails(payload),
     });
   }
 
