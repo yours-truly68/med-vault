@@ -1,0 +1,12 @@
+Patients under ongoing treatment end up with gigantic folders full of prescriptions, bills, and test reports. This is very painful for both patients and doctors to deal with, both for doctors understanding a patient's treatment history, and for medical insurance disbursal.
+
+Language barriers make this even more painful for patients to reckon with.
+
+There's a ton of information that goes under-processed and underutilized in a patient's folder. There is absolutely no way that a sleep-deprived and overworked doctor seeing a new or even existing patient is able to really understand their full medical history before making decisions about treatment or testing.
+
+Modern language models make it easy to make sense of this information.
+
+A modern LLM can do simple tasks like categorize the type of paperwork (doctor's prescription, bill, test report, pharmacy bill: all of these are often in the same bundle), organize it by date, and label the origin (ex: the name of the doctor and hospital) trivially.
+
+And with some risk (but hopefully more reward), it can summarize and make semantically searchable the entire medical history. Imagine a doctor typing in a question about your medical history and the relevant sources coming up, perhaps using Retrieval-Augmented Generation a la Perplexity.
+
