@@ -72,7 +72,6 @@ class Settings(BaseSettings):
     primary_pdf_extractor: str = "pymupdf"
     secondary_pdf_extractor: str | None = "docling"
     image_extractor: str = "tesseract"
-    vision_fallback: str | None = "gemini_vision"
     extraction_w_printable: float = 0.25
     extraction_w_ocr_confidence: float = 0.25
     extraction_w_density: float = 0.20
@@ -83,12 +82,8 @@ class Settings(BaseSettings):
     docling_enabled: bool = False
     docling_timeout_seconds: float = 120.0
 
-    # Gemini Vision (last-resort extractor)
+    # Gemini API key for native provider (optional)
     gemini_api_key: str | None = None
-    gemini_vision_enabled: bool = False
-    gemini_vision_model: str = "gemini-2.0-flash"
-    gemini_vision_timeout_seconds: float = 90.0
-    gemini_vision_max_pages: int = 20
 
     # xAI (Grok)
     xai_api_key: str | None = None
@@ -158,11 +153,6 @@ class Settings(BaseSettings):
     summary_model: str | None = None
     summary_fallback_provider: str | None = None
     summary_fallback_model: str | None = None
-
-    vision_provider: str | None = None
-    vision_model: str | None = None
-    vision_fallback_provider: str | None = None
-    vision_fallback_model: str | None = None
 
     chat_provider: str | None = None
     chat_model: str | None = None

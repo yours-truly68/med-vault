@@ -13,7 +13,7 @@ class ExtractorName(StrEnum):
     PYMUPDF = "pymupdf"
     DOCLING = "docling"
     TESSERACT = "tesseract"
-    GEMINI_VISION = "gemini_vision"
+    GEMINI_VISION = "gemini_vision"  # Deprecated in MVP
 
 
 class FileKind(StrEnum):

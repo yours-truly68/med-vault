@@ -16,7 +16,6 @@ class AITask(StrEnum):
     CLASSIFICATION = "classification"
     METADATA = "metadata"
     SUMMARY = "summary"
-    VISION = "vision"
     EMBEDDING = "embedding"
     CHAT = "chat"
 
@@ -106,7 +105,7 @@ def resolve_provider_credentials(settings: Settings, provider: str) -> ProviderC
         return ProviderCredentials(
             provider=normalized,
             api_key=api_key,
-            timeout_seconds=settings.gemini_vision_timeout_seconds,
+            timeout_seconds=settings.llm_timeout_seconds,
             gemini_api_base_url=settings.gemini_api_base_url.rstrip("/"),
         )
 
@@ -228,15 +227,6 @@ def resolve_task_routes(settings: Settings) -> dict[AITask, TaskRoute]:
         task_label="SUMMARY",
     )
 
-    vision_provider, vision_model = _resolve_task_provider_model(
-        settings,
-        provider=settings.vision_provider,
-        model=settings.vision_model,
-        default_provider=settings.summary_provider or legacy_provider,
-        default_model=settings.summary_model or settings.gemini_vision_model or legacy_model,
-        task_label="VISION",
-    )
-
     chat_provider, chat_model = _resolve_task_provider_model(
         settings,
         provider=settings.chat_provider,
@@ -275,14 +265,6 @@ def resolve_task_routes(settings: Settings) -> dict[AITask, TaskRoute]:
             summary_model,
             settings.summary_fallback_provider,
             settings.summary_fallback_model,
-        ),
-        AITask.VISION: _route(
-            settings,
-            AITask.VISION,
-            vision_provider,
-            vision_model,
-            settings.vision_fallback_provider,
-            settings.vision_fallback_model,
         ),
         AITask.CHAT: _route(
             settings,

@@ -224,16 +224,8 @@ class AITaskRouter:
         mime_type: str = "image/jpeg",
         temperature: float = 0.0,
     ) -> GenerationResult:
-        return await self._dispatch_generation(
-            AITask.VISION,
-            lambda provider_name, model: self._get_provider(provider_name).vision(
-                prompt,
-                image_bytes,
-                model=model,
-                mime_type=mime_type,
-                temperature=temperature,
-            ),
-        )
+        """[Deprecated] Vision-based generation is not supported in MVP."""
+        raise NotImplementedError("Vision is not supported in the current MVP release.")
 
     async def embed(self, text: str) -> EmbeddingVector:
         task = AITask.EMBEDDING

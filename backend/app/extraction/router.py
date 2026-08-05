@@ -53,7 +53,7 @@ class ExtractionRouter:
         secondary: str | None,
     ) -> list[ExtractorName]:
         chain: list[ExtractorName] = []
-        for configured in (primary, secondary, "tesseract", self._settings.vision_fallback):
+        for configured in (primary, secondary, "tesseract"):
             name = self._resolve_extractor(configured)
             if name is None:
                 continue
@@ -75,5 +75,5 @@ class ExtractionRouter:
         if extractor == ExtractorName.TESSERACT:
             return self._settings.tesseract_enabled
         if extractor == ExtractorName.GEMINI_VISION:
-            return bool(self._settings.vision_fallback and self._settings.vision_fallback.strip())
+            return False
         return True

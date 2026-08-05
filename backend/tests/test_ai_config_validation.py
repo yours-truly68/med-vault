@@ -18,8 +18,6 @@ def _valid_ai_settings(**overrides) -> Settings:
         "metadata_model": "llama3.2:latest",
         "summary_provider": "groq",
         "summary_model": "llama-3.3-70b-versatile",
-        "vision_provider": "gemini",
-        "vision_model": "gemini-2.0-flash",
         "chat_provider": "groq",
         "chat_model": "llama-3.3-70b-versatile",
         "embedding_provider": "openai",
@@ -36,12 +34,6 @@ def _valid_ai_settings(**overrides) -> Settings:
 def test_rejects_model_name_in_provider_field() -> None:
     settings = _valid_ai_settings(summary_provider="google/gemini-2.5-flash")
     with pytest.raises(ConfigurationError, match="SUMMARY_PROVIDER"):
-        validate_ai_configuration(settings)
-
-
-def test_rejects_ollama_for_vision_task() -> None:
-    settings = _valid_ai_settings(vision_provider="ollama", vision_model="llama3.2:latest")
-    with pytest.raises(ConfigurationError, match="VISION provider"):
         validate_ai_configuration(settings)
 
 
@@ -73,7 +65,6 @@ def test_extraction_accepts_configured_extractors() -> None:
         secondary_pdf_extractor="docling",
         docling_enabled=True,
         image_extractor="tesseract",
-        vision_fallback="gemini",
         tesseract_enabled=True,
     )
     validate_extraction_configuration(settings)

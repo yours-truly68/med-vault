@@ -27,12 +27,17 @@ from app.modules.processing.timeline import TimelineEventDraft, build_timeline_e
 
 logger = logging.getLogger(__name__)
 
-PIPELINE_STAGES: tuple[ProcessingStage, ...] = (
+PHASE1_PROCESSING_STAGES: tuple[ProcessingStage, ...] = (
     ProcessingStage.EXTRACT,
     ProcessingStage.CLASSIFICATION,
     ProcessingStage.METADATA_SUMMARY,
+)
+
+PHASE2_INDEXING_STAGES: tuple[ProcessingStage, ...] = (
     ProcessingStage.EMBEDDINGS,
 )
+
+PIPELINE_STAGES: tuple[ProcessingStage, ...] = PHASE1_PROCESSING_STAGES + PHASE2_INDEXING_STAGES
 
 
 @dataclass
@@ -66,6 +71,7 @@ class ProcessingState:
     embedding: DocumentEmbeddingResult | None = None
     timeline_events: list[TimelineEventDraft] = field(default_factory=list)
     rejected: bool = False
+    stage_timings: dict[str, float] = field(default_factory=dict)
 
 
 class ProcessingPipeline:
@@ -106,19 +112,31 @@ class ProcessingPipeline:
             self._embedder = embedder or DocumentEmbedder(ai_router)
 
     async def run_stage(self, stage: ProcessingStage, state: ProcessingState) -> ProcessingState:
-        if is_extraction_stage(stage):
-            return await self._run_extract(state)
-        if stage == ProcessingStage.CLASSIFICATION:
-            return await self._run_classification(state)
-        if stage in {
-            ProcessingStage.METADATA,
-            ProcessingStage.SUMMARY,
-            ProcessingStage.METADATA_SUMMARY,
-        }:
-            return await self._run_metadata_and_summary(state)
-        if stage == ProcessingStage.EMBEDDINGS:
-            return await self._run_embeddings(state)
-        raise ValueError(f"Unsupported pipeline stage: {stage}")
+        started = asyncio.get_event_loop().time()
+        try:
+            if is_extraction_stage(stage):
+                result_state = await self._run_extract(state)
+            elif stage == ProcessingStage.CLASSIFICATION:
+                result_state = await self._run_classification(state)
+            elif stage in {
+                ProcessingStage.METADATA,
+                ProcessingStage.SUMMARY,
+                ProcessingStage.METADATA_SUMMARY,
+            }:
+                result_state = await self._run_metadata_and_summary(state)
+            elif stage == ProcessingStage.EMBEDDINGS:
+                result_state = await self._run_embeddings(state)
+            else:
+                raise ValueError(f"Unsupported pipeline stage: {stage}")
+            
+            elapsed_ms = round((asyncio.get_event_loop().time() - started) * 1000, 2)
+            result_state.stage_timings[stage.value] = elapsed_ms
+            logger.info("Stage %s completed for doc %s in %.2fms", stage.value, state.document.id, elapsed_ms)
+            return result_state
+        except Exception:
+            elapsed_ms = round((asyncio.get_event_loop().time() - started) * 1000, 2)
+            state.stage_timings[f"{stage.value}_error"] = elapsed_ms
+            raise
 
     async def _run_extract(self, state: ProcessingState) -> ProcessingState:
         file_path = self._storage.resolve_path(state.document.storage_path)

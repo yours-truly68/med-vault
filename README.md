@@ -21,7 +21,7 @@ medvault/
 | -------- | ------------ |
 | Frontend | Next.js 16, TypeScript, Tailwind CSS v4, shadcn/ui, TanStack Query, Zustand, React Hook Form, Zod |
 | Backend  | FastAPI, Python 3.13+, SQLAlchemy 2.x, Alembic, PostgreSQL, Pydantic v2 |
-| AI       | OCR, LLM, Embeddings, RAG |
+| AI       | Text Extraction (PyMuPDF, Docling, Tesseract), LLM, Embeddings, RAG (Vision OCR deferred to future release) |
 
 ## Getting Started
 

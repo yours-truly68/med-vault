@@ -19,7 +19,7 @@ class Database:
 
     def __init__(self, settings: Settings) -> None:
         self._engine: AsyncEngine = create_async_engine(
-            str(settings.database_url),
+            settings.database_url,
             echo=settings.debug,
             pool_pre_ping=True,
         )
@@ -60,3 +60,7 @@ class Database:
             except Exception:
                 await session.rollback()
                 raise
+
+    def session_scope(self):
+        """Async context manager helper for background processing tasks."""
+        return self._session_factory()

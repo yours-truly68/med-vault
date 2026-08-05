@@ -190,21 +190,25 @@ class DocumentRepository:
         important_dates: list[dict] | None = None,
         highlights: list[str] | None = None,
         summary_model_name: str | None = None,
-        timeline_events: list[dict] | None = None,
+        timeline_events: list[dict[str, Any]] | None = None,
         embedding_vector: list[float] | None = None,
         embedding_model_name: str | None = None,
         embedding_dimensions: int | None = None,
-        status: DocumentStatus = DocumentStatus.COMPLETED,
+        status: DocumentStatus = DocumentStatus.READY,
+        indexing_status: str = "not_started",
+        stage_timings: dict[str, Any] | None = None,
     ) -> Document | None:
         document = await self.get_by_id(document_id)
         if document is None:
             return None
 
         document.extracted_text = extracted_text
-        document.page_count = page_count
         document.document_type = document_type.value
         document.document_date = document_date
         document.status = status.value
+        document.indexing_status = indexing_status
+        if stage_timings is not None:
+            document.stage_timings = stage_timings
         document.processing_error = None
 
         metadata = await self._get_or_create_metadata(document_id)

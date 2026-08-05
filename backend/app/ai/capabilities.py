@@ -58,7 +58,6 @@ TASK_REQUIRED_CAPABILITIES: dict[AITask, tuple[str, ...]] = {
     AITask.CLASSIFICATION: ("supports_chat", "supports_structured_output"),
     AITask.METADATA: ("supports_chat", "supports_structured_output"),
     AITask.SUMMARY: ("supports_chat", "supports_structured_output"),
-    AITask.VISION: ("supports_vision",),
     AITask.CHAT: ("supports_chat",),
     AITask.EMBEDDING: ("supports_embeddings",),
 }

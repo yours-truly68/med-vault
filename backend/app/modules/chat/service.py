@@ -69,6 +69,25 @@ class ChatService:
         except SemanticSearchError as exc:
             raise ValidationError(str(exc)) from exc
 
+        if not search_result.hits:
+            # Check if user has READY documents that are currently being indexed
+            query = select(Document).where(
+                Document.user_id == user.id,
+                Document.status == "ready",
+                Document.indexing_status != "indexed",
+            )
+            if payload.family_member_id is not None:
+                query = query.where(Document.family_member_id == payload.family_member_id)
+            res = await self._session.execute(query)
+            unindexed_docs = res.scalars().all()
+            if unindexed_docs:
+                return ChatAskResponse(
+                    question=payload.question.strip(),
+                    answer="Your document has been processed successfully! The AI search index is currently being prepared in the background. Full search will become available shortly.",
+                    insufficient_context=True,
+                    citations=[],
+                )
+
         documents = await self._load_documents(
             user.id,
             [hit.document_id for hit in search_result.hits],

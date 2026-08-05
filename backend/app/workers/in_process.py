@@ -107,7 +107,7 @@ class InProcessDocumentWorker:
                 logger.exception("Deferred retry loop failed")
 
     async def _process_deferred_retries(self) -> None:
-        async with self._database.session_scope() as session:
+        async with self._database.session_factory() as session:
             repo = ProcessingRepository(session)
             jobs = await repo.list_jobs_ready_for_retry(limit=20)
             deferred: list[DocumentJob] = []

@@ -45,7 +45,6 @@ def test_vercel_capability_matrix() -> None:
 def test_vercel_does_not_support_vision_task() -> None:
     assert provider_supports_task("vercel", AITask.CHAT) is True
     assert provider_supports_task("vercel", AITask.EMBEDDING) is True
-    assert provider_supports_task("vercel", AITask.VISION) is False
 
 
 def test_gemini_supports_all_ai_tasks() -> None:
@@ -53,21 +52,9 @@ def test_gemini_supports_all_ai_tasks() -> None:
         assert provider_supports_task("gemini", task) is True
 
 
-def test_xai_does_not_support_embeddings_or_vision() -> None:
+def test_xai_does_not_support_embeddings() -> None:
     assert provider_supports_task("xai", AITask.CHAT) is True
     assert provider_supports_task("xai", AITask.EMBEDDING) is False
-    assert provider_supports_task("xai", AITask.VISION) is False
-
-
-@pytest.mark.asyncio
-async def test_openai_compatible_vision_raises() -> None:
-    provider = OpenAICompatibleProvider(
-        api_key="test-key",
-        base_url="https://example.com/v1",
-        label="vercel",
-    )
-    with pytest.raises(ProviderError, match="does not support vision"):
-        await provider.vision("prompt", b"bytes", model="gpt-4o")
 
 
 @pytest.mark.asyncio

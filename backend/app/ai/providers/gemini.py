@@ -124,26 +124,8 @@ class GeminiProvider:
         mime_type: str = "image/jpeg",
         temperature: float = 0.0,
     ) -> GenerationResult:
-        if not model:
-            raise ValidationProviderError("Model is required")
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inline_data": {
-                                "mime_type": mime_type,
-                                "data": base64.b64encode(image_bytes).decode("ascii"),
-                            }
-                        },
-                    ]
-                }
-            ],
-            "generationConfig": {"temperature": temperature},
-        }
-        data = await self._post_generate(model, payload)
-        return self._parse_generate_response(data, model)
+        """[Deprecated] Vision processing is not enabled in current MVP."""
+        raise NotImplementedError("Vision processing is not enabled in the current MVP release.")
 
     async def embed(
         self,

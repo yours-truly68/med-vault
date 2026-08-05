@@ -12,6 +12,7 @@ from app.core.database.session import Database
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.middleware import RequestLoggingMiddleware
+from app.workers.in_process import InProcessDocumentWorker
 from app.ai.validation import ConfigurationError, validate_application_configuration
 
 logger = logging.getLogger(__name__)

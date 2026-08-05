@@ -101,6 +101,7 @@ class AIProvider(Protocol):
         mime_type: str = "image/jpeg",
         temperature: float = 0.0,
     ) -> GenerationResult:
+        """[Deprecated] Vision processing is not enabled in the current MVP."""
         ...
 
     async def embed(

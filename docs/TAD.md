@@ -76,7 +76,7 @@ Backend
 
 AI
 
-* Extraction Engine (PyMuPDF → Docling → Tesseract → Gemini Vision)
+* Extraction Engine (PyMuPDF → Docling → Tesseract; Vision OCR deferred to future release)
 * LLM for classification, metadata, and summarization
 * Embedding Model
 * Retrieval-Augmented Generation (RAG)

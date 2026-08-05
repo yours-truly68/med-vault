@@ -96,7 +96,6 @@ def validate_ai_configuration(settings: Settings) -> None:
         AITask.CLASSIFICATION: "CLASSIFICATION",
         AITask.METADATA: "METADATA",
         AITask.SUMMARY: "SUMMARY",
-        AITask.VISION: "VISION",
         AITask.CHAT: "CHAT",
         AITask.EMBEDDING: "EMBEDDING",
     }
@@ -150,7 +149,6 @@ def validate_extraction_configuration(settings: Settings) -> None:
     _validate_extractor_name("PRIMARY_PDF_EXTRACTOR", settings.primary_pdf_extractor, required=True)
     _validate_extractor_name("SECONDARY_PDF_EXTRACTOR", settings.secondary_pdf_extractor)
     _validate_extractor_name("IMAGE_EXTRACTOR", settings.image_extractor, required=True)
-    _validate_extractor_name("VISION_FALLBACK", settings.vision_fallback)
 
     secondary = (settings.secondary_pdf_extractor or "").strip().lower()
     if secondary == "docling" and not settings.docling_enabled:

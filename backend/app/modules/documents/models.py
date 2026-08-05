@@ -60,10 +60,18 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=DocumentStatus.PENDING.value,
         server_default=DocumentStatus.PENDING.value,
     )
+    indexing_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="not_started",
+        server_default="not_started",
+    )
     document_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     document_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    indexing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stage_timings: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     user: Mapped[User] = relationship(back_populates="documents")
     family_member: Mapped[FamilyMember] = relationship(back_populates="documents")

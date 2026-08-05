@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -74,6 +75,7 @@ class DocumentUploadResponse(BaseModel):
     file_size_bytes: int
     page_count: int | None = None
     status: DocumentStatus
+    indexing_status: str = "not_started"
     processing_status: ProcessingStage
     processing_job: DocumentProcessingJobResponse | None = None
     document_type: DocumentType | None = None
@@ -84,6 +86,8 @@ class DocumentUploadResponse(BaseModel):
     summary: DocumentSummaryResponse | None = None
     extracted_text: str | None = None
     processing_error: str | None = None
+    indexing_error: str | None = None
+    stage_timings: dict[str, Any] | None = None
     uploaded_at: datetime | None = None
     processed_at: datetime | None = None
     created_at: datetime

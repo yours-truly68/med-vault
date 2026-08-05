@@ -28,14 +28,13 @@ from app.extraction.quality import QualityScorer
 from app.extraction.router import ExtractionRouter
 from app.extraction.strategies.base import BaseExtractor
 from app.extraction.strategies.docling import DoclingExtractor
-from app.extraction.strategies.gemini_vision import GeminiVisionExtractor
 from app.extraction.strategies.pymupdf import PyMuPdfExtractor
 from app.extraction.strategies.tesseract import TesseractExtractor
 from app.extraction.telemetry import ExtractionTelemetry
 
 logger = logging.getLogger(__name__)
 
-OCR_EXTRACTORS = frozenset({ExtractorName.TESSERACT, ExtractorName.GEMINI_VISION})
+OCR_EXTRACTORS = frozenset({ExtractorName.TESSERACT})
 
 
 class ExtractionEngine:
@@ -79,7 +78,6 @@ class ExtractionEngine:
                 ExtractorName.PYMUPDF: PyMuPdfExtractor(settings),
                 ExtractorName.DOCLING: DoclingExtractor(settings),
                 ExtractorName.TESSERACT: TesseractExtractor(settings),
-                ExtractorName.GEMINI_VISION: GeminiVisionExtractor(settings),
             }
         )
 

@@ -5,11 +5,23 @@ EMBEDDING_DIMENSIONS = 1536
 
 
 class DocumentStatus(StrEnum):
+    UPLOADED = "uploaded"
+    QUEUED = "queued"
     PENDING = "pending"
     PROCESSING = "processing"
-    COMPLETED = "completed"
+    READY = "ready"
+    INDEXING = "indexing"
+    INDEXED = "indexed"
+    COMPLETED = "completed"  # Alias for READY / INDEXED backward compatibility
     FAILED = "failed"
     REJECTED = "rejected"
+
+
+class IndexingStatus(StrEnum):
+    NOT_STARTED = "not_started"
+    INDEXING = "indexing"
+    INDEXED = "indexed"
+    FAILED = "failed"
 
 
 class DocumentType(StrEnum):

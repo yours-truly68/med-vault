@@ -1,9 +1,20 @@
 export type DocumentStatus =
+  | "uploaded"
+  | "queued"
   | "pending"
   | "processing"
+  | "ready"
+  | "indexing"
+  | "indexed"
   | "completed"
   | "failed"
   | "rejected";
+
+export type IndexingStatus =
+  | "not_started"
+  | "indexing"
+  | "indexed"
+  | "failed";
 
 export type DocumentType =
   | "prescription"
@@ -135,6 +146,7 @@ export type Document = {
   file_size_bytes: number;
   page_count: number | null;
   status: DocumentStatus;
+  indexing_status?: IndexingStatus;
   processing_status: ProcessingStage;
   processing_job: DocumentProcessingJob | null;
   document_type: DocumentType | null;
