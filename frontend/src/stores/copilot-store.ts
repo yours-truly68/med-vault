@@ -34,6 +34,7 @@ export type CopilotMessage = {
   response?: ChatAskResponse;
   pageContext?: string;
   error?: string;
+  userQuestion?: string;
   timestamp: number;
 };
 

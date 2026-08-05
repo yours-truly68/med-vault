@@ -49,7 +49,7 @@ async def list_documents(
     )
 
 
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 @router.get("/{document_id}", response_model=DocumentUploadResponse)
 async def get_document(
@@ -65,13 +65,24 @@ async def get_document_file(
     document_id: UUID,
     current_user: CurrentUser,
     service: DocumentServiceDep,
-) -> FileResponse:
-    file_path, content_type, filename = await service.get_document_file(current_user, document_id)
-    return FileResponse(
-        path=file_path,
+) -> Response:
+    content, content_type, filename = await service.get_document_bytes(current_user, document_id)
+    return Response(
+        content=content,
         media_type=content_type,
-        filename=filename,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+@router.get("/{document_id}/presigned-url")
+async def get_document_presigned_url(
+    document_id: UUID,
+    current_user: CurrentUser,
+    service: DocumentServiceDep,
+    expires_in: int = Query(default=3600, ge=60, le=86400),
+) -> dict[str, str]:
+    url = await service.get_document_presigned_url(current_user, document_id, expires_in=expires_in)
+    return {"url": url}
 
 
 @router.delete("/{document_id}", response_model=MessageResponse)

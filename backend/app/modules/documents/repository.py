@@ -31,6 +31,8 @@ class DocumentRepository:
         storage_path: str,
         content_type: str,
         file_size_bytes: int,
+        bucket: str | None = None,
+        checksum: str | None = None,
         status: DocumentStatus = DocumentStatus.PENDING,
     ) -> Document:
         document = Document(
@@ -38,6 +40,8 @@ class DocumentRepository:
             family_member_id=family_member_id,
             original_filename=original_filename,
             storage_path=storage_path,
+            bucket=bucket,
+            checksum=checksum,
             content_type=content_type,
             file_size_bytes=file_size_bytes,
             status=status.value,

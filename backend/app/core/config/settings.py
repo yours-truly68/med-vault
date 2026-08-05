@@ -45,7 +45,17 @@ class Settings(BaseSettings):
     # CORS (comma-separated in .env, not JSON)
     cors_origins: Annotated[list[str], NoDecode] = Field(default=["http://localhost:3000"])
 
-    # File storage
+    # File storage & Object storage abstraction
+    storage_provider: str = "minio"
+    s3_endpoint: str | None = "http://localhost:9000"
+    s3_public_endpoint: str | None = None
+    s3_bucket: str = "medvault"
+    s3_region: str = "us-east-1"
+    s3_access_key: str = "minioadmin"
+    s3_secret_key: str = "minioadmin"
+    s3_use_ssl: bool = False
+    s3_force_path_style: bool = True
+
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 25
 

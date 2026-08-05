@@ -134,52 +134,65 @@ class ProcessingPipeline:
         *,
         pipeline_ctx: PipelineContext | None = None,
     ) -> ProcessingState:
+        import tempfile
         from app.modules.processing.instrumentation import instrument_stage, log_stage_enter, log_stage_exit
 
-        # Sub-stage: resolve file from storage
-        if pipeline_ctx:
-            async with instrument_stage(pipeline_ctx, "file_resolution") as meta:
-                file_path = self._storage.resolve_path(state.document.storage_path)
-                meta["storage_path"] = state.document.storage_path
-                meta["resolved_path"] = str(file_path)
-                meta["exists"] = file_path.exists()
-        else:
-            file_path = self._storage.resolve_path(state.document.storage_path)
+        ext = Path(state.document.original_filename).suffix.lower() or ".pdf"
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp_file:
+            temp_path = Path(tmp_file.name)
 
-        # Sub-stage: extraction engine run (covers PyMuPDF → Docling → Tesseract fallback chain)
-        if pipeline_ctx:
-            async with instrument_stage(pipeline_ctx, "extraction_engine") as meta:
+        try:
+            # Sub-stage: resolve file from object storage
+            if pipeline_ctx:
+                async with instrument_stage(pipeline_ctx, "file_resolution") as meta:
+                    self._storage.download_to_temp_file(state.document.storage_path, temp_path)
+                    meta["storage_path"] = state.document.storage_path
+                    meta["resolved_path"] = str(temp_path)
+                    meta["exists"] = temp_path.exists()
+            else:
+                self._storage.download_to_temp_file(state.document.storage_path, temp_path)
+
+            # Sub-stage: extraction engine run (covers PyMuPDF → Docling → Tesseract fallback chain)
+            if pipeline_ctx:
+                async with instrument_stage(pipeline_ctx, "extraction_engine") as meta:
+                    result = await self._extraction.extract(
+                        temp_path,
+                        declared_content_type=state.document.content_type,
+                        document_id=state.document.id,
+                    )
+                    meta["extractor"] = result.extractor
+                    meta["quality_score"] = result.quality_score
+                    meta["quality_decision"] = result.quality_decision.value
+                    meta["char_count"] = result.character_count
+                    meta["page_count"] = result.page_count
+                    meta["elapsed_ms"] = result.elapsed_ms
+                    meta["cache_hit"] = result.cache_hit
+                    if result.fallbacks:
+                        meta["fallbacks"] = "|".join(
+                            f"{fb.extractor}:{fb.decision or fb.error or 'ok'}" for fb in result.fallbacks
+                        )
+            else:
                 result = await self._extraction.extract(
-                    file_path,
+                    temp_path,
                     declared_content_type=state.document.content_type,
                     document_id=state.document.id,
                 )
-                meta["extractor"] = result.extractor
-                meta["quality_score"] = result.quality_score
-                meta["quality_decision"] = result.quality_decision.value
-                meta["char_count"] = result.character_count
-                meta["page_count"] = result.page_count
-                meta["elapsed_ms"] = result.elapsed_ms
-                meta["cache_hit"] = result.cache_hit
-                if result.fallbacks:
-                    meta["fallbacks"] = "|".join(
-                        f"{fb.extractor}:{fb.decision or fb.error or 'ok'}" for fb in result.fallbacks
-                    )
-        else:
-            result = await self._extraction.extract(
-                file_path,
-                declared_content_type=state.document.content_type,
-                document_id=state.document.id,
-            )
 
-        if result.quality_decision.value == "accept_with_warn":
-            logger.warning(
-                "Extraction accepted with warning for document %s (score=%.2f, extractor=%s)",
-                state.document.id,
-                result.quality_score,
-                result.extractor,
-            )
-        state.extraction_result = result
+            if result.quality_decision.value == "accept_with_warn":
+                logger.warning(
+                    "Extraction accepted with warning for document %s (score=%.2f, extractor=%s)",
+                    state.document.id,
+                    result.quality_score,
+                    result.extractor,
+                )
+            state.extraction_result = result
+            return state
+        finally:
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception as exc:
+                    logger.warning("Failed to remove temporary OCR file %s: %s", temp_path, exc)
         return state
 
     async def _run_classification(

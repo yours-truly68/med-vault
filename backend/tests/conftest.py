@@ -81,6 +81,7 @@ def all_dummy_dataset_pdfs(dummy_dataset_dir: Path) -> list[Path]:
 def extraction_settings(tmp_path: Path) -> Settings:
     return Settings(
         upload_dir=str(tmp_path / "uploads"),
+        storage_provider="local",
         extraction_cache_dir=str(tmp_path / "extraction-cache"),
         extraction_cache_enabled=True,
         docling_enabled=False,

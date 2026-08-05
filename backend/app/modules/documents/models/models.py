@@ -54,8 +54,14 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     original_filename: Mapped[str] = mapped_column(String(512), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    bucket: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
     content_type: Mapped[str] = mapped_column(String(255), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    @property
+    def object_key(self) -> str:
+        return self.storage_path
 
     status: Mapped[str] = mapped_column(
         String(32),

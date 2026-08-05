@@ -29,6 +29,7 @@ import {
   Mic,
   ArrowDown,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -182,7 +183,7 @@ function CopilotBubble({
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={() => onRetry(message.content)}
+                onClick={() => onRetry(message.userQuestion || message.content)}
                 className="rounded-lg text-xs h-6 px-2 gap-1"
               >
                 <RotateCcw className="size-3" />
@@ -385,6 +386,7 @@ export function CopilotWindow() {
         id: assistantMsgId,
         role: "assistant",
         content: "",
+        userQuestion: trimmed,
       });
 
       setQuestion("");
@@ -533,8 +535,23 @@ export function CopilotWindow() {
           </div>
         </div>
 
-        {/* Minimal Header Controls (Fullscreen, Minimize, Close) */}
+        {/* Minimal Header Controls (Clear Chat, Fullscreen, Minimize, Close) */}
         <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            title="Clear Chat"
+            disabled={messages.length === 0}
+            onClick={() => {
+              clearMessages();
+              toast.success("Chat history cleared");
+            }}
+            className="rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-30"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+
           <Button
             type="button"
             variant="ghost"

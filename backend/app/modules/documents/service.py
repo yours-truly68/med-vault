@@ -79,6 +79,8 @@ class DocumentService:
                     family_member_id=family_member_id,
                     original_filename=saved.original_filename,
                     storage_path=saved.storage_path,
+                    bucket=saved.bucket,
+                    checksum=saved.checksum,
                     content_type=saved.content_type,
                     file_size_bytes=saved.file_size_bytes,
                     status=DocumentStatus.PENDING,
@@ -129,21 +131,36 @@ class DocumentService:
         user: User,
         document_id: UUID,
     ) -> DocumentUploadResponse:
-        document = await self._repository.get_by_id(document_id, user_id=user.id)
+        document = await self._repository.get_by_id_and_user_id(document_id, user_id=user.id)
         if not document:
             raise DocumentNotFoundError("Document not found")
         return self._to_response(document)
 
-    async def get_document_file(
+    async def get_document_bytes(
         self,
         user: User,
         document_id: UUID,
-    ) -> tuple[Path, str, str]:
-        document = await self._repository.get_by_id(document_id, user_id=user.id)
+    ) -> tuple[bytes, str, str]:
+        document = await self._repository.get_by_id_and_user_id(document_id, user_id=user.id)
         if not document:
             raise DocumentNotFoundError("Document not found")
-        file_path = self._storage.resolve_path(document.storage_path)
-        return file_path, document.content_type, document.original_filename
+        content = self._storage.download_bytes(document.storage_path)
+        return content, document.content_type, document.original_filename
+
+    async def get_document_presigned_url(
+        self,
+        user: User,
+        document_id: UUID,
+        expires_in: int = 3600,
+    ) -> str:
+        document = await self._repository.get_by_id_and_user_id(document_id, user_id=user.id)
+        if not document:
+            raise DocumentNotFoundError("Document not found")
+        return self._storage.generate_presigned_url(
+            document.storage_path,
+            expires_in=expires_in,
+            filename=document.original_filename,
+        )
 
     async def delete_document(self, user: User, document_id: UUID) -> MessageResponse:
         document = await self._repository.get_by_id_and_user_id(document_id, user.id)

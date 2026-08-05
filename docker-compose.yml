@@ -1,4 +1,9 @@
+name: medvault
+
 services:
+  # ----------------------------------------------------
+  # 1. PostgreSQL Database with pgvector
+  # ----------------------------------------------------
   postgres:
     image: pgvector/pgvector:pg16
     container_name: medvault-postgres
@@ -7,7 +12,7 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-medvault}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespasswordthatnobodyhasaccessto}
       POSTGRES_DB: ${POSTGRES_DB:-medvault}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -16,6 +21,186 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    networks:
+      - medvault-network
+
+  # ----------------------------------------------------
+  # 2. Redis Cache & Job Queue Broker
+  # ----------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: medvault-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - medvault-network
+
+  # ----------------------------------------------------
+  # 3. MinIO Object Storage (S3-Compatible Local Server)
+  # ----------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    container_name: medvault-minio
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/medvault && minio server /data --console-address ":9001"'
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - medvault-network
+
+  # ----------------------------------------------------
+  # 4. MinIO Bucket Initialization Container
+  # ----------------------------------------------------
+  createbuckets:
+    image: minio/mc
+    container_name: medvault-createbuckets
+    restart: on-failure
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 ${S3_ACCESS_KEY:-minioadmin} ${S3_SECRET_KEY:-minioadmin};
+      /usr/bin/mc mb myminio/${S3_BUCKET:-medvault} --ignore-existing;
+      /usr/bin/mc anonymous set download myminio/${S3_BUCKET:-medvault};
+      exit 0;
+      "
+    networks:
+      - medvault-network
+
+  # ----------------------------------------------------
+  # 5. FastAPI Backend Service
+  # ----------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: medvault-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-medvault}:${POSTGRES_PASSWORD:-postgrespasswordthatnobodyhasaccessto}@postgres:5432/${POSTGRES_DB:-medvault}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_BUCKET: ${S3_BUCKET:-medvault}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_USE_SSL: "false"
+      S3_FORCE_PATH_STYLE: "true"
+      SECRET_KEY: ${SECRET_KEY:-72e64ae5ddc0b5be51eba79835412312198c0dc47f298196cd1f5e3e6b949c00}
+      VERCEL_AI_API_KEY: ${VERCEL_AI_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - medvault-network
+
+  # ----------------------------------------------------
+  # 6. ARQ Background Processing & Indexing Worker
+  # ----------------------------------------------------
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: medvault-worker
+    restart: unless-stopped
+    command: python -m app.workers.runner
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-medvault}:${POSTGRES_PASSWORD:-postgrespasswordthatnobodyhasaccessto}@postgres:5432/${POSTGRES_DB:-medvault}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_BUCKET: ${S3_BUCKET:-medvault}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_USE_SSL: "false"
+      S3_FORCE_PATH_STYLE: "true"
+      VERCEL_AI_API_KEY: ${VERCEL_AI_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - medvault-network
+
+  # ----------------------------------------------------
+  # 7. Next.js Frontend Application
+  # ----------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: medvault-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - medvault-network
 
 volumes:
   postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  medvault-network:
+    driver: bridge

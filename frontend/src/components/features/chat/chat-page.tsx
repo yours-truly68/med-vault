@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   FileText,
   Clock,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -302,7 +303,7 @@ export function ChatPageContent() {
   );
 
   const sendQuestion = useCallback(
-    async (raw: string) => {
+    async (raw: string, retryAssistantMsgId?: string) => {
       const trimmed = raw.trim();
       if (!trimmed || askChat.isPending) return;
 
@@ -315,7 +316,18 @@ export function ChatPageContent() {
         content: trimmed,
       };
 
-      setMessages((current) => [...current, userMessage]);
+      setMessages((current) => {
+        let list = current;
+        if (retryAssistantMsgId) {
+          list = list.filter((m) => m.id !== retryAssistantMsgId);
+          const lastMsg = list[list.length - 1];
+          if (lastMsg && lastMsg.role === "user" && lastMsg.content === trimmed) {
+            return list;
+          }
+        }
+        return [...list, userMessage];
+      });
+
       setQuestion("");
 
       try {
@@ -416,6 +428,21 @@ export function ChatPageContent() {
               </p>
             </div>
           </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setMessages([]);
+              toast.success("Chat history cleared");
+            }}
+            disabled={messages.length === 0}
+            className="rounded-xl text-xs gap-1.5"
+          >
+            <Trash2 className="size-3.5" />
+            <span className="hidden sm:inline">Clear Chat</span>
+          </Button>
         </header>
 
         {/* Scrollable messages container */}
@@ -434,7 +461,7 @@ export function ChatPageContent() {
                   key={message.id}
                   message={message}
                   onSelectPrompt={(prompt) => void sendQuestion(prompt)}
-                  onRetry={(query) => void sendQuestion(query)}
+                  onRetry={(query) => void sendQuestion(query, message.id)}
                 />
               ))}
 

@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+dist
+coverage
+.vercel
+.git
+.gitignore
+.vscode
+.idea
+*.log
+.env*
+.DS_Store
+.cache
+*.tsbuildinfo
+public/brand/_sources
