@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config.settings import get_settings
 from app.core.database.base import Base
+import app.core.database.models  # noqa: F401
 
 config = context.config
 settings = get_settings()
