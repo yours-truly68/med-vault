@@ -49,6 +49,8 @@ async def list_documents(
     )
 
 
+from fastapi.responses import FileResponse
+
 @router.get("/{document_id}", response_model=DocumentUploadResponse)
 async def get_document(
     document_id: UUID,
@@ -56,6 +58,20 @@ async def get_document(
     service: DocumentServiceDep,
 ) -> DocumentUploadResponse:
     return await service.get_document(current_user, document_id)
+
+
+@router.get("/{document_id}/file")
+async def get_document_file(
+    document_id: UUID,
+    current_user: CurrentUser,
+    service: DocumentServiceDep,
+) -> FileResponse:
+    file_path, content_type, filename = await service.get_document_file(current_user, document_id)
+    return FileResponse(
+        path=file_path,
+        media_type=content_type,
+        filename=filename,
+    )
 
 
 @router.delete("/{document_id}", response_model=MessageResponse)

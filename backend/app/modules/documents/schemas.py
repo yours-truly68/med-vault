@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.database.enums import DocumentStatus, DocumentType, ProcessingJobStatus, ProcessingStage
 
@@ -51,6 +51,57 @@ class DocumentSummaryResponse(BaseModel):
     key_findings: list[str] = Field(default_factory=list)
     important_dates: list[ImportantDateResponse] = Field(default_factory=list)
     highlights: list[str] = Field(default_factory=list)
+
+    @field_validator("highlights", mode="before")
+    @classmethod
+    def coerce_highlights(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            lines = [line.strip() for line in value.splitlines() if line.strip()]
+            return [cls._clean_highlight_item(l) for l in lines if cls._clean_highlight_item(l)]
+        if isinstance(value, list):
+            results: list[str] = []
+            for item in value:
+                cleaned = cls._clean_highlight_item(item)
+                if cleaned:
+                    results.append(cleaned)
+            return results
+        return []
+
+    @classmethod
+    def _clean_highlight_item(cls, item: Any) -> str | None:
+        if item is None:
+            return None
+        if isinstance(item, str):
+            trimmed = item.strip()
+            if not trimmed:
+                return None
+            if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("{'") and trimmed.endswith("'}")):
+                try:
+                    import json
+                    parsed = json.loads(trimmed)
+                    if isinstance(parsed, dict):
+                        val = parsed.get("item") or parsed.get("highlight") or parsed.get("text") or parsed.get("finding")
+                        if val and isinstance(val, str):
+                            return val.strip()
+                except Exception:
+                    pass
+                import re
+                m = re.search(r"['\"]item['\"]:\s*['\"]([^'\"]+)['\"]", trimmed)
+                if m:
+                    return m.group(1).strip()
+            return trimmed
+        if isinstance(item, dict):
+            val = item.get("item") or item.get("highlight") or item.get("text") or item.get("finding")
+            if val and isinstance(val, str):
+                return val.strip()
+            if item:
+                first_val = next(iter(item.values()))
+                if isinstance(first_val, str):
+                    return first_val.strip()
+        val_str = str(item).strip()
+        return val_str if val_str else None
 
 
 class DocumentProcessingJobResponse(BaseModel):

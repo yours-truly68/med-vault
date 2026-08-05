@@ -9,11 +9,8 @@ import { DocumentStatusBadge, ProcessingPipeline } from "@/components/documents"
 import { DocumentTypeBadge } from "@/components/documents/document-type-badge";
 import { ErrorState, LoadingGrid, PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { DocumentPreviewPanel } from "@/components/documents/document-preview-panel";
 import {
   useDeleteDocument,
   useDocument,
@@ -167,14 +164,30 @@ function SummarySection({ summary }: { summary: DocumentSummary }) {
               Highlights
             </h3>
             <ul className="divide-y divide-border/70 border-y border-border/70">
-              {summary.highlights.map((highlight) => (
-                <li
-                  key={highlight}
-                  className="py-2.5 text-sm leading-relaxed text-muted-foreground text-pretty"
-                >
-                  {highlight}
-                </li>
-              ))}
+              {summary.highlights.map((highlight, idx) => {
+                const text = typeof highlight === "string" && highlight.startsWith("{")
+                  ? (() => {
+                      try {
+                        const parsed = JSON.parse(highlight);
+                        return parsed.item || parsed.highlight || parsed.text || highlight;
+                      } catch {
+                        const m = highlight.match(/['"]item['"]:\s*['"]([^'"]+)['"]/);
+                        return m ? m[1] : highlight;
+                      }
+                    })()
+                  : typeof highlight === "object" && highlight !== null
+                  ? (highlight as any).item || (highlight as any).highlight || (highlight as any).text || String(highlight)
+                  : String(highlight);
+
+                return (
+                  <li
+                    key={`${text}-${idx}`}
+                    className="py-2.5 text-sm leading-relaxed text-muted-foreground text-pretty"
+                  >
+                    • {text}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}
@@ -567,6 +580,13 @@ export function DocumentDetailPageContent({
           ) : null}
         </div>
       ) : null}
+
+      {/* Original Document / PDF / Image Preview Panel */}
+      <DocumentPreviewPanel
+        documentId={document.id}
+        originalFilename={document.original_filename}
+        mimeType={document.content_type}
+      />
 
       <RecordDetailsSection document={document} familyMember={familyMember} />
     </div>

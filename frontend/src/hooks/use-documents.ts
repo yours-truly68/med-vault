@@ -20,14 +20,13 @@ type UseDocumentsOptions = ListDocumentsParams & {
 
 export function useDocuments(options?: UseDocumentsOptions) {
   const accessToken = useAuthStore((state) => state.accessToken);
-  const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const { pollWhileProcessing, ...filters } = options ?? {};
 
   return useQuery({
     queryKey: [...queryKeys.documents.all, filters] as const,
-    queryFn: () => listDocuments(accessToken, filters),
-    enabled: hasHydrated && isAuthenticated,
+    queryFn: () => listDocuments(accessToken || useAuthStore.getState().accessToken, filters),
+    enabled: Boolean(accessToken) || isAuthenticated,
     refetchInterval: (query) => {
       if (!pollWhileProcessing) return false;
       const items = query.state.data?.items ?? [];
@@ -51,7 +50,7 @@ export function useDocument(documentId: string) {
   return useQuery({
     queryKey: queryKeys.documents.detail(documentId),
     queryFn: () => getDocument(accessToken, documentId),
-    enabled: hasHydrated && isAuthenticated && Boolean(documentId),
+    enabled: Boolean(accessToken) && Boolean(documentId),
     refetchInterval: (query) => {
       const doc = query.state.data;
       if (!doc) return false;

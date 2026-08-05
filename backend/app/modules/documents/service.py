@@ -124,11 +124,26 @@ class DocumentService:
             total=len(documents),
         )
 
-    async def get_document(self, user: User, document_id: UUID) -> DocumentUploadResponse:
-        document = await self._repository.get_by_id_and_user_id(document_id, user.id)
-        if document is None:
-            raise DocumentNotFoundError()
+    async def get_document(
+        self,
+        user: User,
+        document_id: UUID,
+    ) -> DocumentUploadResponse:
+        document = await self._repository.get_by_id(document_id, user_id=user.id)
+        if not document:
+            raise DocumentNotFoundError("Document not found")
         return self._to_response(document)
+
+    async def get_document_file(
+        self,
+        user: User,
+        document_id: UUID,
+    ) -> tuple[Path, str, str]:
+        document = await self._repository.get_by_id(document_id, user_id=user.id)
+        if not document:
+            raise DocumentNotFoundError("Document not found")
+        file_path = self._storage.resolve_path(document.storage_path)
+        return file_path, document.content_type, document.original_filename
 
     async def delete_document(self, user: User, document_id: UUID) -> MessageResponse:
         document = await self._repository.get_by_id_and_user_id(document_id, user.id)
