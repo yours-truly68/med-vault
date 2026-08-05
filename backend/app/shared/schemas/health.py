@@ -9,3 +9,6 @@ class HealthResponse(BaseModel):
     version: str
     environment: str
     database: Literal["connected", "disconnected"]
+    redis: Literal["connected", "disconnected"] = "disconnected"
+    queue: Literal["connected", "disconnected"] = "disconnected"
+    worker: Literal["registered", "unregistered"] = "unregistered"

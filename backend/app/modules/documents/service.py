@@ -27,6 +27,7 @@ from app.modules.family_members.exceptions import FamilyMemberNotFoundError
 from app.modules.family_members.repository import FamilyMemberRepository
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.users.models.models import User
+from app.queue.interface import IJobQueue
 from app.workers.interface import DocumentWorker
 
 
@@ -39,6 +40,7 @@ class DocumentService:
         family_member_repository: FamilyMemberRepository | None = None,
         storage: LocalDocumentStorage | None = None,
         worker: DocumentWorker | None = None,
+        job_queue: IJobQueue | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
@@ -46,6 +48,7 @@ class DocumentService:
         self._family_members = family_member_repository or FamilyMemberRepository(session)
         self._storage = storage or LocalDocumentStorage(settings)
         self._worker = worker
+        self._job_queue = job_queue
 
     async def upload_documents(
         self,
@@ -90,7 +93,13 @@ class DocumentService:
 
         # Commit before enqueue so the worker session can see the rows.
         await self._session.commit()
-        if self._worker is not None:
+
+        # Enqueue Phase 1 Processing Job to ARQ Queue
+        if self._job_queue is not None:
+            for document_id in document_ids:
+                await self._job_queue.enqueue_processing(document_id)
+        elif self._worker is not None:
+            # Fallback to old in-process worker if ARQ queue is uninitialized
             for document_id in document_ids:
                 await self._worker.enqueue(document_id)
 

@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     ocr_max_workers: int = 4
     document_worker_concurrency: int = 2
     embedding_retry_base_seconds: float = 60.0
+
+    # Redis & ARQ Queue Configuration
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+    arq_job_timeout: int = 300
+    arq_max_retries: int = 3
+    processing_queue_name: str = "medvault:processing"
+    indexing_queue_name: str = "medvault:indexing"
     embedding_retry_max_seconds: float = 900.0
     deferred_retry_poll_seconds: float = 30.0
 

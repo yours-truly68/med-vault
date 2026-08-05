@@ -30,6 +30,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database = Database(settings)
     app.state.database = database
 
+    from app.queue.client import RedisManager
+    from app.queue.enqueue import ArqJobQueue
+
+    redis_manager = RedisManager(settings)
+    app.state.redis_manager = redis_manager
+    redis_connected = await redis_manager.check_connection()
+    if redis_connected:
+        logger.info("Redis server connection verified successfully (%s:%s)", settings.redis_host, settings.redis_port)
+    else:
+        logger.warning("Redis server ping failed during startup (%s:%s)", settings.redis_host, settings.redis_port)
+
+    job_queue = ArqJobQueue(redis_manager, settings)
+    app.state.job_queue = job_queue
+
     document_worker = InProcessDocumentWorker(
         database,
         settings,
@@ -43,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     await document_worker.stop()
+    await redis_manager.close()
     await database.dispose()
     logger.info("Shutdown complete")
 

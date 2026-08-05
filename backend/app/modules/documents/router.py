@@ -19,7 +19,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 @router.post(
     "/upload",
     response_model=DocumentUploadListResponse,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def upload_documents(
     family_member_id: Annotated[UUID, Form()],

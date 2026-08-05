@@ -19,7 +19,8 @@ async def get_document_service(
     settings: Annotated[Settings, Depends(get_app_settings)],
 ) -> DocumentService:
     worker: DocumentWorker | None = get_document_worker(request)
-    return DocumentService(session=db, settings=settings, worker=worker)
+    job_queue = getattr(request.app.state, "job_queue", None)
+    return DocumentService(session=db, settings=settings, worker=worker, job_queue=job_queue)
 
 
 DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]

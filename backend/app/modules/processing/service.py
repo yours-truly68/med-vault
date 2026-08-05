@@ -1,18 +1,16 @@
-"""Processing service: orchestrates jobs, pause/resume, and persistence."""
+"""Processing service: orchestrates Phase 1 jobs, pause/resume, and persistence."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.classifier import ClassificationError
-from app.ai.embeddings.embeddings import (
-    DocumentEmbeddingResult,
-    EmbeddingError,
-)
 from app.ai.errors import RateLimitError
 from app.ai.metadata import MetadataExtractionError
 from app.ai.summarizer import SummarizationError
@@ -28,8 +26,20 @@ from app.extraction.models import QualityDecision
 from app.modules.documents.models import Document
 from app.modules.documents.repository import DocumentRepository
 from app.modules.processing.exceptions import ProcessingJobNotFoundError, ProcessingPausedError
+from app.modules.processing.instrumentation import (
+    PipelineContext,
+    instrument_stage,
+    log_stage_enter,
+    log_stage_error,
+    log_stage_exit,
+)
 from app.modules.processing.models import ProcessingJob
-from app.modules.processing.pipeline import PIPELINE_STAGES, ProcessingPipeline, ProcessingState
+from app.modules.processing.pipeline import (
+    PHASE1_PROCESSING_STAGES,
+    PIPELINE_STAGES,
+    ProcessingPipeline,
+    ProcessingState,
+)
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.schemas import (
     ProcessingControlResponse,
@@ -37,6 +47,7 @@ from app.modules.processing.schemas import (
     ProcessingStatusResponse,
 )
 from app.modules.users.models.models import User
+from app.queue.interface import IJobQueue
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +66,14 @@ class ProcessingService:
         database: Database | None = None,
         pipeline: ProcessingPipeline | None = None,
         repository: ProcessingRepository | None = None,
+        job_queue: IJobQueue | None = None,
     ) -> None:
         self._session = session
         self._database = database
         self._settings = settings
         self._pipeline = pipeline or ProcessingPipeline(settings)
         self._repository = repository
+        self._job_queue = job_queue
 
     def _repo(self, session: AsyncSession) -> ProcessingRepository:
         return self._repository or ProcessingRepository(session)
@@ -149,16 +162,19 @@ class ProcessingService:
         await self._session.commit()
         return ProcessingJobResponse.model_validate(resumed)
 
-    async def process_document(
-        self,
-        document_id: UUID,
-        *,
-        embeddings_only: bool = False,
-    ) -> None:
-        """Entry point used by background workers (BackgroundTasks, Celery, ARQ, etc.)."""
+    async def process_document(self, document_id: UUID, *, pipeline_ctx: PipelineContext | None = None) -> None:
+        """Phase 1 entry point used by background workers. Processes document up to READY state."""
         if self._database is None:
             raise RuntimeError("Database handle is required for background processing")
 
+        # Build instrumentation context if not provided by worker
+        ctx = pipeline_ctx or PipelineContext(
+            document_id=document_id,
+            worker_name="ProcessingService",
+        )
+
+        # ── Stage: load_document ──
+        t0 = log_stage_enter(ctx, "load_document")
         async with self._database.session_scope() as session:
             document_repo = DocumentRepository(session)
             processing_repo = self._repo(session)
@@ -166,48 +182,51 @@ class ProcessingService:
             document = await document_repo.get_by_id(document_id)
             if document is None:
                 logger.warning("Document %s not found; skipping processing", document_id)
+                log_stage_exit(ctx, "load_document", t0, result="not_found")
                 return
 
-            if not embeddings_only and document.status not in PROCESSABLE_DOCUMENT_STATUSES:
+            if document.status not in PROCESSABLE_DOCUMENT_STATUSES:
                 logger.info(
                     "Document %s has status %r; skipping processing",
                     document_id,
                     document.status,
                 )
+                log_stage_exit(ctx, "load_document", t0, result="skipped", status=document.status)
                 return
 
             job = await processing_repo.get_latest_job_for_document(document_id)
             if job is None:
                 job = await processing_repo.create_job(document_id)
 
+            ctx.job_id = str(job.id)
+
             if job.status == ProcessingJobStatus.PAUSED.value:
                 logger.info("Processing job %s is paused; skipping", job.id)
+                log_stage_exit(ctx, "load_document", t0, result="paused")
                 return
 
             if await processing_repo.is_globally_paused():
                 await processing_repo.mark_job_paused(job.id)
                 await session.commit()
                 logger.info("Global processing pause active; job %s paused", job.id)
+                log_stage_exit(ctx, "load_document", t0, result="globally_paused")
                 return
 
-            if not embeddings_only:
-                await document_repo.update_status(document_id, DocumentStatus.PROCESSING)
-                document.processing_status = ProcessingStage.UPLOADED.value
-                await processing_repo.mark_job_running(job.id, stage=ProcessingStage.UPLOADED)
-                await session.commit()
+            await document_repo.update_status(document_id, DocumentStatus.PROCESSING)
+            document.processing_status = ProcessingStage.UPLOADED.value
+            await processing_repo.mark_job_running(job.id, stage=ProcessingStage.UPLOADED)
+            await session.commit()
+        log_stage_exit(ctx, "load_document", t0, filename=document.original_filename)
 
-        if embeddings_only:
-            state = await self._load_state_for_embedding_retry(document_id, job.id)
-            if state is None:
-                logger.warning(
-                    "Document %s is not ready for embedding retry; skipping",
-                    document_id,
-                )
-                return
-            stages = (ProcessingStage.EMBEDDINGS,)
-        else:
-            state = ProcessingState(document=document, job_id=job.id)
-            stages = PHASE1_PROCESSING_STAGES
+        state = ProcessingState(document=document, job_id=job.id)
+        stages = PHASE1_PROCESSING_STAGES
+
+        # Map ProcessingStage enum to human-readable stage names
+        _STAGE_LABELS = {
+            ProcessingStage.EXTRACT: "extraction",
+            ProcessingStage.CLASSIFICATION: "classification",
+            ProcessingStage.METADATA_SUMMARY: "metadata_and_summary",
+        }
 
         try:
             for stage in stages:
@@ -222,36 +241,64 @@ class ProcessingService:
                         doc.processing_status = stage.value
                     await session.commit()
 
-                state = await self._pipeline.run_stage(stage, state)
+                label = _STAGE_LABELS.get(stage, stage.value)
+                async with instrument_stage(ctx, label) as meta:
+                    state = await self._pipeline.run_stage(stage, state, pipeline_ctx=ctx)
+                    # Attach stage-specific metadata for the trace
+                    if stage == ProcessingStage.EXTRACT and state.extraction_result:
+                        meta["extractor"] = state.extraction_result.extractor
+                        meta["quality_score"] = state.extraction_result.quality_score
+                        meta["char_count"] = state.extraction_result.character_count
+                        meta["page_count"] = state.extraction_result.page_count
+                    elif stage == ProcessingStage.CLASSIFICATION and state.classification:
+                        meta["category"] = state.classification.category.value
+                        meta["confidence"] = state.classification.confidence
+                        meta["model"] = state.classification.model_name
+                    elif stage == ProcessingStage.METADATA_SUMMARY:
+                        if state.metadata_output:
+                            meta["metadata_model"] = state.metadata_output.model_name
+                        if state.summary_output:
+                            meta["summary_model"] = state.summary_output.model_name
 
                 if stage == ProcessingStage.CLASSIFICATION and state.rejected:
-                    await self._persist_rejected(document_id, job.id, state)
+                    async with instrument_stage(ctx, "persist_rejected"):
+                        await self._persist_rejected(document_id, job.id, state)
                     return
 
-            await self._persist_success(document_id, job.id, state, embeddings_only=embeddings_only)
-            
-            # Phase 2: Immediately trigger asynchronous vector indexing without blocking user readiness
-            if not embeddings_only and not state.rejected:
-                asyncio.create_task(self.process_indexing(document_id))
+            # ── Stage: persist_success (READY) ──
+            async with instrument_stage(ctx, "persist_success"):
+                await self._persist_success(document_id, job.id, state)
+
+            # Phase 1 finished: Document is READY. Enqueue Phase 2 indexing job.
+            if not state.rejected and self._job_queue is not None:
+                async with instrument_stage(ctx, "enqueue_indexing") as meta:
+                    enqueue_id = await self._job_queue.enqueue_indexing(document_id)
+                    meta["enqueue_id"] = str(enqueue_id)
+                logger.info(
+                    "Phase 1 processing complete for doc %s (READY). Enqueued Phase 2 indexing job %s",
+                    document_id,
+                    enqueue_id,
+                )
+            else:
+                logger.info("Phase 1 processing complete for doc %s (READY).", document_id)
+
         except ProcessingPausedError:
             logger.info("Processing paused for document %s", document_id)
         except RateLimitError as exc:
             logger.warning("Rate limit hit for document %s: %s", document_id, exc)
-            stage = self._infer_rate_limited_stage(state, embeddings_only=embeddings_only)
+            stage = self._infer_rate_limited_stage(state)
             await self._persist_rate_limited(
                 document_id,
                 job.id,
                 state,
                 stage=stage,
                 error=exc,
-                embeddings_only=embeddings_only,
             )
         except (
             ExtractionError,
             ClassificationError,
             MetadataExtractionError,
             SummarizationError,
-            EmbeddingError,
             FileNotFoundError,
             ValueError,
         ) as exc:
@@ -260,58 +307,6 @@ class ProcessingService:
         except Exception as exc:
             logger.exception("Document %s processing failed unexpectedly", document_id)
             await self._persist_failure(document_id, job.id, str(exc))
-
-    async def process_indexing(self, document_id: UUID) -> None:
-        """Phase 2: Independent background vector indexing. Does not fail document readiness."""
-        if self._database is None:
-            return
-
-        async with self._database.session_scope() as session:
-            document = await DocumentRepository(session).get_by_id(document_id)
-            if document is None or not document.extracted_text:
-                logger.warning("Document %s has no text to index; skipping indexing", document_id)
-                return
-            document.indexing_status = "indexing"
-            document.indexing_error = None
-            await session.commit()
-
-        try:
-            state = ProcessingState(
-                document=document,
-                job_id=document_id,
-                extraction_result=ExtractionResult(
-                    text=document.extracted_text,
-                    extractor="stored",
-                    confidence=1.0,
-                    quality_score=1.0,
-                    quality_decision=QualityDecision.ACCEPT,
-                    character_count=len(document.extracted_text),
-                    page_count=1,
-                    elapsed_ms=0,
-                ),
-            )
-            state = await self._pipeline.run_stage(ProcessingStage.EMBEDDINGS, state)
-            if state.embedding is not None:
-                await self._persist_embedding_only(document_id, document_id, state, state.embedding)
-                async with self._database.session_scope() as session:
-                    doc = await DocumentRepository(session).get_by_id(document_id)
-                    if doc is not None:
-                        doc.indexing_status = "indexed"
-                        doc.status = DocumentStatus.INDEXED.value
-                        if state.stage_timings:
-                            existing = doc.stage_timings or {}
-                            existing.update(state.stage_timings)
-                            doc.stage_timings = existing
-                    await session.commit()
-                logger.info("Document %s successfully indexed into pgvector", document_id)
-        except Exception as exc:
-            logger.exception("Background indexing failed for document %s", document_id)
-            async with self._database.session_scope() as session:
-                doc = await DocumentRepository(session).get_by_id(document_id)
-                if doc is not None:
-                    doc.indexing_status = "failed"
-                    doc.indexing_error = str(exc)[:4000]
-                await session.commit()
 
     async def retry_deferred_jobs(self) -> int:
         """Re-enqueue jobs whose rate-limit cooldown has elapsed."""
@@ -363,47 +358,17 @@ class ProcessingService:
                 await session.commit()
                 raise ProcessingPausedError(f"Job {job_id} is paused")
 
-    async def _load_state_for_embedding_retry(
-        self,
-        document_id: UUID,
-        job_id: UUID,
-    ) -> ProcessingState | None:
-        if self._database is None:
-            return None
-
-        async with self._database.session_scope() as session:
-            document = await DocumentRepository(session).get_by_id(document_id)
-            if document is None or not document.extracted_text:
-                return None
-
-            state = ProcessingState(document=document, job_id=job_id)
-            state.extraction_result = ExtractionResult(
-                text=document.extracted_text,
-                extractor="cached",
-                confidence=1.0,
-                quality_score=1.0,
-                quality_decision=QualityDecision.ACCEPT,
-                character_count=len(document.extracted_text),
-                page_count=document.page_count or 1,
-                elapsed_ms=0,
-            )
-            return state
-
     def _infer_rate_limited_stage(
         self,
         state: ProcessingState,
-        *,
-        embeddings_only: bool,
     ) -> ProcessingStage:
-        if embeddings_only or state.embedding is None and state.summary_output is not None:
-            return ProcessingStage.EMBEDDINGS
         if state.classification is None:
             return ProcessingStage.CLASSIFICATION
         if state.metadata_output is None or state.summary_output is None:
             return ProcessingStage.METADATA_SUMMARY
         if state.extraction_result is None:
             return ProcessingStage.EXTRACT
-        return ProcessingStage.EMBEDDINGS
+        return ProcessingStage.METADATA_SUMMARY
 
     def _calculate_retry_delay(self, retry_count: int, retry_after: float | None) -> float:
         base = retry_after or self._settings.embedding_retry_base_seconds
@@ -418,7 +383,6 @@ class ProcessingService:
         *,
         stage: ProcessingStage,
         error: RateLimitError,
-        embeddings_only: bool = False,
     ) -> None:
         if self._database is None:
             return
@@ -436,26 +400,6 @@ class ProcessingService:
             f"Retry scheduled in {int(delay)} seconds."
         )
 
-        if (
-            stage == ProcessingStage.EMBEDDINGS
-            and not embeddings_only
-            and state.metadata_output is not None
-            and state.summary_output is not None
-            and state.classification is not None
-            and state.extraction_result is not None
-        ):
-            await self._persist_document_result(
-                document_id,
-                job_id,
-                state,
-                embedding_vector=None,
-                embedding_model_name=None,
-                embedding_dimensions=None,
-                document_status=DocumentStatus.COMPLETED,
-                processing_status=ProcessingStage.EMBEDDINGS,
-                mark_job_completed=False,
-            )
-
         async with self._database.session_scope() as session:
             await self._repo(session).mark_job_rate_limited(
                 job_id,
@@ -465,7 +409,7 @@ class ProcessingService:
                 error_message=message,
             )
             document = await DocumentRepository(session).get_by_id(document_id)
-            if document is not None and stage != ProcessingStage.EMBEDDINGS:
+            if document is not None:
                 document.processing_status = stage.value
             await self._repo(session).increment_retry_count(job_id)
             await session.commit()
@@ -484,9 +428,6 @@ class ProcessingService:
         job_id: UUID,
         state: ProcessingState,
         *,
-        embedding_vector: list[float] | None,
-        embedding_model_name: str | None,
-        embedding_dimensions: int | None,
         document_status: DocumentStatus,
         processing_status: ProcessingStage,
         mark_job_completed: bool,
@@ -554,9 +495,9 @@ class ProcessingService:
                 highlights=summary.highlights,
                 summary_model_name=summary_output.model_name,
                 timeline_events=timeline_payload,
-                embedding_vector=embedding_vector,
-                embedding_model_name=embedding_model_name,
-                embedding_dimensions=embedding_dimensions,
+                embedding_vector=None,
+                embedding_model_name=None,
+                embedding_dimensions=None,
                 status=document_status,
             )
             document = await DocumentRepository(session).get_by_id(document_id)
@@ -574,53 +515,15 @@ class ProcessingService:
         document_id: UUID,
         job_id: UUID,
         state: ProcessingState,
-        *,
-        embeddings_only: bool = False,
     ) -> None:
-        if embeddings_only:
-            embedding = state.embedding
-            if embedding is None:
-                raise ValueError("Embedding result is required for embedding-only persistence")
-            await self._persist_embedding_only(document_id, job_id, state, embedding)
-            return
-
         await self._persist_document_result(
             document_id,
             job_id,
             state,
-            embedding_vector=None,
-            embedding_model_name=None,
-            embedding_dimensions=None,
             document_status=DocumentStatus.READY,
             processing_status=ProcessingStage.READY,
             mark_job_completed=True,
         )
-
-    async def _persist_embedding_only(
-        self,
-        document_id: UUID,
-        job_id: UUID,
-        state: ProcessingState,
-        embedding: DocumentEmbeddingResult,
-    ) -> None:
-        if self._database is None:
-            return
-
-        from app.ai.embeddings.vector import PgVectorStore
-
-        async with self._database.session_scope() as session:
-            await PgVectorStore(session).upsert(
-                document_id,
-                embedding=embedding.vector,
-                model_name=embedding.model_name,
-                dimensions=embedding.dimensions,
-            )
-            document = await DocumentRepository(session).get_by_id(document_id)
-            if document is not None:
-                document.processing_status = ProcessingStage.READY.value
-                document.processed_at = datetime.now(UTC)
-            await self._repo(session).mark_job_completed(job_id)
-            await session.commit()
 
     async def _persist_rejected(
         self,
