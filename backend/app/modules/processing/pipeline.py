@@ -237,42 +237,59 @@ class ProcessingPipeline:
 
         text = state.extraction_result.text
 
+        # 1. Metadata Extraction (Critical for document structure)
         if pipeline_ctx:
-            # Log both AI calls as sub-stages (they run concurrently)
-            async with instrument_stage(pipeline_ctx, "metadata_extraction_start") as meta:
-                metadata_task = self._metadata.extract(
+            async with instrument_stage(pipeline_ctx, "metadata_extraction") as meta:
+                metadata_result = await self._metadata.extract(
                     text,
                     document_type=state.classification.category,
                 )
-                summary_task = self._summarizer.summarize(
-                    text,
-                    document_type=state.classification.category,
-                )
-                metadata_result, summary_result = await asyncio.gather(metadata_task, summary_task)
                 meta["metadata_model"] = metadata_result.model_name
-                meta["summary_model"] = summary_result.model_name
         else:
-            metadata_task = self._metadata.extract(
+            metadata_result = await self._metadata.extract(
                 text,
                 document_type=state.classification.category,
             )
-            summary_task = self._summarizer.summarize(
-                text,
-                document_type=state.classification.category,
-            )
-            metadata_result, summary_result = await asyncio.gather(metadata_task, summary_task)
 
         state.metadata_output = MetadataOutput(
             metadata=metadata_result.metadata,
             model_name=metadata_result.model_name,
         )
-        state.summary_output = SummaryOutput(
-            summary=summary_result.summary,
-            model_name=summary_result.model_name,
-        )
+
+        # 2. Summary Generation (Non-critical enrichment step per Task 2 & Task 6)
+        summary_result = None
+        try:
+            if pipeline_ctx:
+                async with instrument_stage(pipeline_ctx, "summary_generation") as meta:
+                    summary_result = await self._summarizer.summarize(
+                        text,
+                        document_type=state.classification.category,
+                    )
+                    meta["summary_model"] = summary_result.model_name
+            else:
+                summary_result = await self._summarizer.summarize(
+                    text,
+                    document_type=state.classification.category,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Summary generation failed for doc %s (non-critical enrichment error): %s",
+                state.document.id,
+                exc,
+            )
+
+        if summary_result is not None:
+            state.summary_output = SummaryOutput(
+                summary=summary_result.summary,
+                model_name=summary_result.model_name,
+            )
+        else:
+            state.summary_output = None
+
+        # 3. Timeline Extraction (Enrichment step based on metadata and available summary)
         state.timeline_events = build_timeline_events(
             state.document,
             metadata_result.metadata,
-            summary_result.summary,
+            summary_result.summary if summary_result else None,
         )
         return state

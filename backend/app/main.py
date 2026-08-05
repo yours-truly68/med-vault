@@ -87,6 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestLoggingMiddleware)
 
     app.include_router(api_router)
+    app.include_router(api_router, prefix="/api/v1")
 
     return app
 

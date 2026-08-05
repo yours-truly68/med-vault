@@ -442,13 +442,12 @@ class ProcessingService:
         if (
             classification is None
             or metadata_output is None
-            or summary_output is None
             or ocr_result is None
         ):
             raise ValueError("Processing state is incomplete")
 
         metadata = metadata_output.metadata
-        summary = summary_output.summary
+        summary = summary_output.summary if summary_output else None
         timeline_payload = [
             {
                 "event_date": draft.event_date,
@@ -486,14 +485,14 @@ class ProcessingService:
                 medical_devices=metadata.medical_devices,
                 vaccinations=metadata.vaccinations,
                 metadata_model_name=metadata_output.model_name,
-                short_summary=summary.short_summary,
-                key_findings=summary.key_findings,
+                short_summary=summary.short_summary if summary else None,
+                key_findings=summary.key_findings if summary else None,
                 important_dates=[
                     {"date": item.date.isoformat(), "label": item.label}
                     for item in summary.important_dates
-                ],
-                highlights=summary.highlights,
-                summary_model_name=summary_output.model_name,
+                ] if summary else None,
+                highlights=summary.highlights if summary else None,
+                summary_model_name=summary_output.model_name if summary_output else None,
                 timeline_events=timeline_payload,
                 embedding_vector=None,
                 embedding_model_name=None,
