@@ -82,7 +82,7 @@ def build_timeline_events(
                     event_date=event_date,
                     event_type=TimelineEventType.DIAGNOSIS,
                     title=metadata.diagnosis,
-                    description=metadata.clinical_summary,
+                    description=metadata.summary,
                     source_field="diagnosis",
                 )
             )
