@@ -47,6 +47,9 @@ class S3StorageProvider(StorageProvider):
             config=Config(
                 s3={"addressing_style": "path" if self._force_path_style else "auto"},
                 signature_version="s3v4",
+                connect_timeout=2,
+                read_timeout=5,
+                retries={"max_attempts": 1},
             ),
         )
 
@@ -62,6 +65,9 @@ class S3StorageProvider(StorageProvider):
                 config=Config(
                     s3={"addressing_style": "path" if self._force_path_style else "auto"},
                     signature_version="s3v4",
+                    connect_timeout=2,
+                    read_timeout=5,
+                    retries={"max_attempts": 1},
                 ),
             )
         else:
