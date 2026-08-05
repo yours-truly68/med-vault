@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from typing import AsyncGenerator
 from uuid import UUID
 
+from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -50,7 +53,111 @@ class ChatService:
 
         self._rag = rag or RetrievalAugmentedGenerator(create_ai_router(settings))
 
-    async def ask(self, user: User, payload: ChatAskRequest) -> ChatAskResponse:
+    async def stream_ask(
+        self,
+        user: User,
+        payload: ChatAskRequest,
+        *,
+        request: Request | None = None,
+    ) -> AsyncGenerator[str, None]:
+        import json
+        import time
+
+        start_time = time.perf_counter()
+        yield f"event: start\ndata: {json.dumps({'question': payload.question.strip()})}\n\n"
+        yield f"event: thinking\ndata: {json.dumps({'stage': 'searching'})}\n\n"
+
+        if request is not None and await request.is_disconnected():
+            yield f"event: error\ndata: {json.dumps({'detail': 'Client disconnected'})}\n\n"
+            return
+
+        top_k = payload.top_k or self._settings.rag_top_k
+        min_score = (
+            self._settings.rag_min_score
+            if payload.min_score is None
+            else payload.min_score
+        )
+
+        try:
+            search_result = await self._search.search(
+                payload.question,
+                user_id=user.id,
+                limit=top_k,
+                min_score=min_score,
+                family_member_id=payload.family_member_id,
+            )
+        except Exception as exc:
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+            return
+
+        documents = await self._load_documents(
+            user.id,
+            [hit.document_id for hit in search_result.hits],
+        )
+
+        retrieved: list[RetrievedDocument] = []
+        citations: list[dict] = []
+
+        for hit in search_result.hits:
+            doc = documents.get(hit.document_id)
+            if not doc:
+                continue
+            meta = doc.__dict__.get("document_metadata")
+            ai_sum = doc.__dict__.get("ai_summary")
+
+            retrieved.append(
+                RetrievedDocument(
+                    document_id=doc.id,
+                    original_filename=doc.original_filename,
+                    document_type=doc.document_type,
+                    document_date=doc.document_date.isoformat() if doc.document_date else None,
+                    page_count=doc.page_count,
+                    score=hit.score,
+                    summary=ai_sum.summary if ai_sum else None,
+                    diagnosis=meta.diagnosis if meta else None,
+                    extracted_text=doc.extracted_text,
+                )
+            )
+            citations.append({
+                "document_id": str(doc.id),
+                "original_filename": doc.original_filename,
+                "document_type": doc.document_type,
+                "document_date": doc.document_date.isoformat() if doc.document_date else None,
+                "family_member_id": str(doc.family_member_id),
+                "score": hit.score,
+                "excerpt": self._excerpt(ai_sum.summary if ai_sum else doc.extracted_text),
+            })
+
+        yield f"event: thinking\ndata: {json.dumps({'stage': 'generating'})}\n\n"
+
+        ttft_logged = False
+        ttft_ms = 0
+        try:
+            async for token in self._rag.stream_generate(payload.question, retrieved):
+                if request is not None and await request.is_disconnected():
+                    break
+                if not ttft_logged:
+                    ttft_ms = int((time.perf_counter() - start_time) * 1000)
+                    ttft_logged = True
+                yield f"event: token\ndata: {json.dumps({'delta': token})}\n\n"
+        except Exception as exc:
+            yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+            return
+
+        yield f"event: metadata\ndata: {json.dumps({'citations': citations})}\n\n"
+        total_time_ms = int((time.perf_counter() - start_time) * 1000)
+        yield f"event: done\ndata: {json.dumps({'ttft_ms': ttft_ms, 'total_ms': total_time_ms})}\n\n"
+
+    async def ask(
+        self,
+        user: User,
+        payload: ChatAskRequest,
+        *,
+        request: Request | None = None,
+    ) -> ChatAskResponse:
+        if request is not None and await request.is_disconnected():
+            raise asyncio.CancelledError("Client disconnected before search execution")
+
         top_k = payload.top_k or self._settings.rag_top_k
         min_score = (
             self._settings.rag_min_score

@@ -25,13 +25,21 @@ class ChatCitation(BaseModel):
     summary: str | None = None
 
 
+class SupportingLabValue(BaseModel):
+    test_name: str
+    value: float | str | None = None
+    unit: str | None = None
+    reference_low: float | str | None = None
+    reference_high: float | str | None = None
+
+
 class ChatSupportingDetails(BaseModel):
     patient: str | None = None
     doctor: str | None = None
     hospital: str | None = None
     diagnosis: str | None = None
     medicines: list[str] = Field(default_factory=list)
-    lab_values: list[str] = Field(default_factory=list)
+    lab_values: list[SupportingLabValue] = Field(default_factory=list)
     procedures: list[str] = Field(default_factory=list)
     follow_up: str | None = None
 
