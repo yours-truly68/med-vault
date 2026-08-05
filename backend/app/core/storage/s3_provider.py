@@ -15,9 +15,10 @@ from typing import BinaryIO
 
 import boto3
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
 
 from app.core.config.settings import Settings
+from app.core.exceptions import StorageError, StorageUnavailableError
 from app.core.storage.base import StorageMetadata, StorageObject, StorageProvider
 
 logger = logging.getLogger(__name__)
@@ -132,12 +133,21 @@ class S3StorageProvider(StorageProvider):
         meta["sha256"] = checksum
         extra_args["Metadata"] = meta
 
-        self._s3_client.upload_fileobj(
-            stream_to_upload,
-            self._bucket,
-            object_key,
-            ExtraArgs=extra_args if extra_args else None,
-        )
+        try:
+            self._s3_client.upload_fileobj(
+                stream_to_upload,
+                self._bucket,
+                object_key,
+                ExtraArgs=extra_args if extra_args else None,
+            )
+        except EndpointConnectionError as exc:
+            logger.error("Failed to connect to storage endpoint %s: %s", self._endpoint, exc)
+            raise StorageUnavailableError(
+                f"Storage service at {self._endpoint} is unreachable. Please verify MinIO is running."
+            ) from exc
+        except (BotoCoreError, ClientError) as exc:
+            logger.error("S3 upload failed for key %s: %s", object_key, exc)
+            raise StorageError(f"Storage upload operation failed: {exc}") from exc
 
         return StorageObject(
             object_key=object_key,

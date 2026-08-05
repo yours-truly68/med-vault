@@ -1,5 +1,6 @@
-from uuid import UUID
+import logging
 import json
+from uuid import UUID
 from datetime import UTC, datetime
 
 from fastapi import UploadFile
@@ -7,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config.settings import Settings
 from app.core.database.enums import DocumentStatus, DocumentType, ProcessingJobStatus, ProcessingStage
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AppException, ValidationError
+
+logger = logging.getLogger(__name__)
 from app.modules.auth.schemas import MessageResponse
 from app.modules.documents.exceptions import DocumentNotFoundError
 from app.modules.documents.models import Document
@@ -88,10 +91,20 @@ class DocumentService:
                 await ProcessingRepository(self._session).create_job(document.id)
                 uploaded.append(self._to_response(document))
                 document_ids.append(document.id)
-        except Exception:
+        except AppException as exc:
             for saved in saved_files:
                 self._storage.delete(saved.storage_path)
+            logger.exception("Document upload failed due to application exception: %s", exc)
             raise
+        except Exception as exc:
+            for saved in saved_files:
+                self._storage.delete(saved.storage_path)
+            logger.exception("Unexpected error during document upload: %s", exc)
+            raise AppException(
+                message="An unexpected error occurred while processing document upload",
+                status_code=500,
+                code="upload_error",
+            ) from exc
 
         # Commit before enqueue so the worker session can see the rows.
         await self._session.commit()

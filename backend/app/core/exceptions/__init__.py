@@ -3,6 +3,8 @@ from app.core.exceptions.base import (
     ConflictError,
     ForbiddenError,
     NotFoundError,
+    StorageError,
+    StorageUnavailableError,
     UnauthorizedError,
     ValidationError,
 )
@@ -13,6 +15,8 @@ __all__ = [
     "ConflictError",
     "ForbiddenError",
     "NotFoundError",
+    "StorageError",
+    "StorageUnavailableError",
     "UnauthorizedError",
     "ValidationError",
     "register_exception_handlers",

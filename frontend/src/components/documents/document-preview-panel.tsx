@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Eye, ExternalLink, Download, FileText, Maximize2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Eye, ExternalLink, Download, FileText, Maximize2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { apiClient } from "@/lib/api/client";
+import { useAuthStore } from "@/stores/auth-store";
 
 type DocumentPreviewPanelProps = {
   documentId: string;
@@ -19,9 +21,42 @@ export function DocumentPreviewPanel({
   className,
 }: DocumentPreviewPanelProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const accessToken = useAuthStore((state) => state.accessToken);
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-  const fileUrl = `${apiBaseUrl}/api/v1/documents/${documentId}/file`;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchPreviewUrl() {
+      setLoading(true);
+      setError(null);
+      try {
+        const token = accessToken || useAuthStore.getState().accessToken;
+        const data = await apiClient<{ url: string }>(
+          `/documents/${documentId}/presigned-url`,
+          { token },
+        );
+        if (!cancelled) {
+          setPreviewUrl(data.url);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError("Failed to load document preview");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchPreviewUrl();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, accessToken]);
 
   const isPdf =
     mimeType === "application/pdf" ||
@@ -60,27 +95,46 @@ export function DocumentPreviewPanel({
             <Maximize2 className="size-4" />
           </Button>
 
-          <Button variant="outline" size="sm" asChild className="h-7 text-xs gap-1">
-            <a href={fileUrl} target="_blank" rel="noopener noreferrer">
-              <span>Open File</span>
-              <ExternalLink className="size-3" />
-            </a>
-          </Button>
+          {previewUrl ? (
+            <Button variant="outline" size="sm" asChild className="h-7 text-xs gap-1">
+              <a href={previewUrl} target="_blank" rel="noopener noreferrer">
+                <span>Open File</span>
+                <ExternalLink className="size-3" />
+              </a>
+            </Button>
+          ) : null}
         </div>
       </div>
 
       {/* Preview Canvas */}
       <div className="flex-1 bg-muted/20 overflow-hidden relative flex items-center justify-center p-2">
-        {isPdf ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Loader2 className="size-6 animate-spin" />
+            <p className="text-xs">Loading preview…</p>
+          </div>
+        ) : error || !previewUrl ? (
+          <div className="flex flex-col items-center justify-center text-center p-6 space-y-3">
+            <FileText className="size-10 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {error || "Preview Unavailable"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Unable to load document preview.
+              </p>
+            </div>
+          </div>
+        ) : isPdf ? (
           <iframe
-            src={`${fileUrl}#toolbar=1`}
+            src={`${previewUrl}#toolbar=1`}
             title={originalFilename}
             className="w-full h-full rounded-xl border border-border/40 shadow-xs"
           />
         ) : isImage ? (
           <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
             <img
-              src={fileUrl}
+              src={previewUrl}
               alt={originalFilename}
               className="max-w-full max-h-full object-contain rounded-xl shadow-md"
             />
@@ -97,7 +151,7 @@ export function DocumentPreviewPanel({
               </p>
             </div>
             <Button variant="outline" size="sm" asChild className="gap-1.5">
-              <a href={fileUrl} download={originalFilename}>
+              <a href={previewUrl} download={originalFilename}>
                 <Download className="size-3.5" />
                 <span>Download {originalFilename}</span>
               </a>
@@ -108,3 +162,4 @@ export function DocumentPreviewPanel({
     </section>
   );
 }
+

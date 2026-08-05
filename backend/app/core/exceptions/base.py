@@ -37,3 +37,14 @@ class ConflictError(AppException):
 class ValidationError(AppException):
     def __init__(self, message: str = "Validation error") -> None:
         super().__init__(message, status_code=422, code="validation_error")
+
+
+class StorageError(AppException):
+    def __init__(self, message: str = "Storage error occurred") -> None:
+        super().__init__(message, status_code=500, code="storage_error")
+
+
+class StorageUnavailableError(AppException):
+    def __init__(self, message: str = "Storage service is currently unavailable") -> None:
+        super().__init__(message, status_code=503, code="storage_unavailable")
+

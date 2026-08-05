@@ -157,3 +157,32 @@ async def test_upload_then_resolve_roundtrip(
     path = storage.resolve_path(saved.storage_path)
     assert path.suffix == ".pdf"
     assert path.stat().st_size == saved.file_size_bytes
+
+
+@pytest.mark.asyncio
+async def test_s3_storage_provider_unreachable(extraction_settings: Settings) -> None:
+    from unittest.mock import MagicMock, patch
+    from botocore.exceptions import EndpointConnectionError
+    from app.core.exceptions import StorageUnavailableError
+    from app.core.storage.s3_provider import S3StorageProvider
+
+    with patch("app.core.storage.s3_provider.boto3.client") as mock_boto:
+        mock_s3 = MagicMock()
+        mock_boto.return_value = mock_s3
+        mock_s3.upload_fileobj.side_effect = EndpointConnectionError(
+            endpoint_url="http://localhost:9000"
+        )
+        provider = S3StorageProvider(extraction_settings)
+        upload = UploadFile(
+            file=BytesIO(b"%PDF-1.4 sample pdf content"),
+            filename="sample.pdf",
+            headers=Headers({"content-type": "application/pdf"}),
+        )
+        storage = LocalDocumentStorage(extraction_settings, provider=provider)
+        with pytest.raises(StorageUnavailableError):
+            await storage.save(
+                user_id=uuid4(),
+                family_member_id=uuid4(),
+                upload=upload,
+            )
+
