@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, CircleAlert } from "lucide-react";
+import { CheckCircle2, CircleAlert, Clock3 } from "lucide-react";
 
 import { DocumentStatusBadge } from "@/components/documents/document-status-badge";
 import { DocumentTypeBadge } from "@/components/documents/document-type-badge";
@@ -16,6 +16,12 @@ import {
   formatProcessingError,
   formatRelativeTime,
 } from "@/lib/format";
+import {
+  getProcessingStatusMessage,
+  isDocumentProcessing,
+  isRateLimitedJob,
+  isRateLimitError,
+} from "@/lib/processing";
 import { cn } from "@/lib/utils";
 import type { Document, FamilyMember } from "@/types/api";
 
@@ -30,18 +36,23 @@ function isActive(document: Document): boolean {
     document.status === "pending" ||
     document.status === "processing" ||
     document.status === "failed" ||
-    document.status === "rejected"
+    document.status === "rejected" ||
+    isRateLimitedJob(document) ||
+    (document.status === "completed" && document.processing_status === "embeddings")
   );
 }
 
-function StatusGlyph({ status }: { status: Document["status"] }) {
-  if (status === "completed") {
+function StatusGlyph({ document }: { document: Document }) {
+  if (isRateLimitedJob(document) || isRateLimitError(document.processing_error)) {
+    return <Clock3 className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />;
+  }
+  if (document.status === "completed" && document.processing_status === "ready") {
     return <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />;
   }
-  if (status === "failed") {
+  if (document.status === "failed") {
     return <CircleAlert className="size-4 text-destructive" aria-hidden />;
   }
-  if (status === "rejected") {
+  if (document.status === "rejected") {
     return <CircleAlert className="size-4 text-orange-600 dark:text-orange-400" aria-hidden />;
   }
   return (
@@ -61,8 +72,12 @@ function QueueRow({
   document: Document;
   memberName?: string;
 }) {
-  const busy =
-    document.status === "pending" || document.status === "processing";
+  const busy = isDocumentProcessing(document);
+  const rateLimited =
+    isRateLimitedJob(document) ||
+    isRateLimitError(
+      document.processing_error ?? document.processing_job?.error_message,
+    );
 
   return (
     <li>
@@ -74,11 +89,12 @@ function QueueRow({
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           document.status === "failed" && "border-destructive/30",
           document.status === "rejected" && "border-orange-500/30",
+          rateLimited && "border-amber-500/35",
         )}
       >
         <div className="flex items-start gap-3">
           <div className="mt-0.5 shrink-0">
-            <StatusGlyph status={document.status} />
+            <StatusGlyph document={document} />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
             <div className="flex items-start justify-between gap-2">
@@ -108,13 +124,22 @@ function QueueRow({
 
             {busy ? (
               <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground">
-                  Extracting text, classifying, and summarizing
+                <p
+                  className={cn(
+                    "text-xs",
+                    rateLimited
+                      ? "text-amber-800 dark:text-amber-200"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {getProcessingStatusMessage(document)}
                 </p>
-                <div
-                  className="status-shimmer-bar h-1 overflow-hidden rounded-full"
-                  aria-hidden
-                />
+                {!rateLimited ? (
+                  <div
+                    className="status-shimmer-bar h-1 overflow-hidden rounded-full"
+                    aria-hidden
+                  />
+                ) : null}
               </div>
             ) : null}
 
@@ -131,7 +156,9 @@ function QueueRow({
               </p>
             ) : null}
 
-            {document.status === "completed" && document.summary?.short_summary ? (
+            {document.status === "completed" &&
+            document.processing_status === "ready" &&
+            document.summary?.short_summary ? (
               <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground text-pretty">
                 {document.summary.short_summary}
               </p>
@@ -156,12 +183,14 @@ export function ProcessingQueue({
 
   const active = sorted.filter(isActive);
   const recentDone = sorted
-    .filter((doc) => doc.status === "completed")
+    .filter(
+      (doc) =>
+        doc.status === "completed" && doc.processing_status === "ready",
+    )
     .slice(0, 4);
 
-  const activeCount = active.filter(
-    (doc) => doc.status === "pending" || doc.status === "processing",
-  ).length;
+  const activeCount = active.filter((doc) => isDocumentProcessing(doc)).length;
+  const rateLimitedCount = active.filter((doc) => isRateLimitedJob(doc)).length;
   const failedCount = active.filter((doc) => doc.status === "failed").length;
   const rejectedCount = active.filter((doc) => doc.status === "rejected").length;
 
@@ -170,18 +199,23 @@ export function ProcessingQueue({
       <CardHeader className="space-y-1">
         <CardTitle>Processing status</CardTitle>
         <CardDescription>
-          Unfinished uploads stay here beside the form until they finish, fail,
-          or get rejected.
+          Live queue for uploads that are extracting, waiting on AI, failed, or
+          ready to review.
         </CardDescription>
-        {!isLoading && (activeCount > 0 || failedCount > 0 || rejectedCount > 0) ? (
+        {!isLoading &&
+        (activeCount > 0 ||
+          failedCount > 0 ||
+          rejectedCount > 0 ||
+          rateLimitedCount > 0) ? (
           <p className="pt-1 text-xs text-muted-foreground tabular-nums">
-            {activeCount > 0 ? `${activeCount} in progress` : null}
-            {activeCount > 0 && (failedCount > 0 || rejectedCount > 0)
-              ? " · "
-              : null}
-            {failedCount > 0 ? `${failedCount} failed` : null}
-            {failedCount > 0 && rejectedCount > 0 ? " · " : null}
-            {rejectedCount > 0 ? `${rejectedCount} to delete` : null}
+            {[
+              activeCount > 0 ? `${activeCount} in progress` : null,
+              rateLimitedCount > 0 ? `${rateLimitedCount} waiting on AI` : null,
+              failedCount > 0 ? `${failedCount} failed` : null,
+              rejectedCount > 0 ? `${rejectedCount} to delete` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         ) : null}
       </CardHeader>
@@ -198,11 +232,11 @@ export function ProcessingQueue({
         ) : null}
 
         {!isLoading && active.length === 0 && recentDone.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-4 py-8 text-center">
-            <p className="text-sm font-medium">No uploads in the queue</p>
-            <p className="mt-1 text-xs text-muted-foreground text-pretty">
-              After you upload, pending and processing files appear here in real
-              time.
+          <div className="rounded-lg border border-dashed border-border/80 bg-muted/15 px-4 py-10 text-center">
+            <p className="text-sm font-medium">Queue is clear</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground text-pretty">
+              Drop files on the left. Pending extraction, AI steps, and retries
+              will show up here automatically.
             </p>
           </div>
         ) : null}

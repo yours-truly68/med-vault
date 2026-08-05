@@ -15,9 +15,9 @@ export const PROCESSING_PIPELINE_STEPS: {
     description: "File saved and queued for processing",
   },
   {
-    stage: "ocr",
+    stage: "extract",
     label: "Reading document",
-    description: "Extracting text from PDF or image (parallel OCR when needed)",
+    description: "Extracting text via the best strategy for this file",
   },
   {
     stage: "classification",
@@ -44,6 +44,7 @@ export const PROCESSING_PIPELINE_STEPS: {
 const STAGE_ORDER = PROCESSING_PIPELINE_STEPS.map((step) => step.stage);
 
 const LEGACY_STAGE_MAP: Partial<Record<ProcessingStage, ProcessingStage>> = {
+  ocr: "extract",
   metadata: "metadata_summary",
   summary: "metadata_summary",
 };

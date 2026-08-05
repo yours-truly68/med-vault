@@ -97,6 +97,7 @@ export type DocumentSummary = {
 
 export type ProcessingStage =
   | "uploaded"
+  | "extract"
   | "ocr"
   | "classification"
   | "metadata"

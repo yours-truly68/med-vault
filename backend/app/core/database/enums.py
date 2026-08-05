@@ -41,7 +41,8 @@ class TimelineEventType(StrEnum):
 
 class ProcessingStage(StrEnum):
     UPLOADED = "uploaded"
-    OCR = "ocr"
+    EXTRACT = "extract"
+    OCR = "ocr"  # Deprecated alias of EXTRACT — dual-read during migration
     CLASSIFICATION = "classification"
     METADATA = "metadata"
     SUMMARY = "summary"
@@ -49,6 +50,11 @@ class ProcessingStage(StrEnum):
     EMBEDDINGS = "embeddings"
     READY = "ready"
     FAILED = "failed"
+
+
+def is_extraction_stage(stage: ProcessingStage | str) -> bool:
+    value = stage.value if isinstance(stage, ProcessingStage) else stage
+    return value in {ProcessingStage.EXTRACT.value, ProcessingStage.OCR.value}
 
 
 class ProcessingJobStatus(StrEnum):

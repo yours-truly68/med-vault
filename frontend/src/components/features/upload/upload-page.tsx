@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
-import { FileUp, X } from "lucide-react";
+import { FileUp, Loader2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { ProcessingQueue } from "@/components/features/upload/processing-queue";
@@ -27,13 +27,25 @@ import { useDocuments, useUploadDocuments } from "@/hooks/use-documents";
 import { useFamilyMembers } from "@/hooks/use-family-members";
 import { ApiError } from "@/lib/api/errors";
 import { formatFileSize } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
-const ACCEPTED_TYPES = [
+const ACCEPTED_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
   "image/jpg",
   "image/png",
-];
+]);
+
+function isAcceptedFile(file: File): boolean {
+  if (ACCEPTED_TYPES.has(file.type)) return true;
+  const lower = file.name.toLowerCase();
+  return (
+    lower.endsWith(".pdf") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".png")
+  );
+}
 
 export function UploadPageContent() {
   const familyMembersQuery = useFamilyMembers();
@@ -41,21 +53,30 @@ export function UploadPageContent() {
   const uploadMutation = useUploadDocuments();
   const [familyMemberId, setFamilyMemberId] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const addFiles = useCallback((incoming: File[]) => {
+    const valid = incoming.filter(isAcceptedFile);
+    const invalidCount = incoming.length - valid.length;
+
+    if (invalidCount > 0) {
+      toast.error("Some files were skipped. Only PDF, JPG, and PNG are supported.");
+    }
+    if (valid.length === 0) return;
+
+    setFiles((current) => {
+      const seen = new Set(current.map((file) => `${file.name}:${file.size}`));
+      const next = valid.filter((file) => !seen.has(`${file.name}:${file.size}`));
+      return [...current, ...next];
+    });
+  }, []);
 
   const handleFileChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      const selected = Array.from(event.target.files ?? []);
-      const valid = selected.filter((file) => ACCEPTED_TYPES.includes(file.type));
-      const invalidCount = selected.length - valid.length;
-
-      if (invalidCount > 0) {
-        toast.error("Some files were skipped. Only PDF, JPG, and PNG are supported.");
-      }
-
-      setFiles((current) => [...current, ...valid]);
+      addFiles(Array.from(event.target.files ?? []));
       event.target.value = "";
     },
-    [],
+    [addFiles],
   );
 
   const removeFile = useCallback((index: number) => {
@@ -180,7 +201,7 @@ export function UploadPageContent() {
           <CardHeader>
             <CardTitle>Document details</CardTitle>
             <CardDescription>
-              Choose who this upload belongs to, then select one or more files.
+              Choose who this upload belongs to, then drop one or more files.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -207,14 +228,42 @@ export function UploadPageContent() {
               <Label htmlFor="files">Files</Label>
               <label
                 htmlFor="files"
-                className="dropzone flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 py-10 text-center transition-[border-color,background-color] duration-200 hover:border-primary/40 hover:bg-muted/30"
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  setIsDragging(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setIsDragging(false);
+                  addFiles(Array.from(event.dataTransfer.files ?? []));
+                }}
+                className={cn(
+                  "dropzone flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 px-6 py-10 text-center transition-[border-color,background-color,box-shadow] duration-200",
+                  isDragging
+                    ? "border-primary bg-primary/8 shadow-[inset_0_0_0_1px] shadow-primary/20"
+                    : "border-border hover:border-primary/40 hover:bg-muted/30",
+                )}
               >
-                <FileUp className="mb-3 size-8 text-muted-foreground" />
+                <Upload
+                  className={cn(
+                    "mb-3 size-8 transition-colors",
+                    isDragging ? "text-primary" : "text-muted-foreground",
+                  )}
+                  aria-hidden
+                />
                 <span className="text-sm font-medium">
-                  Drop files here or click to browse
+                  {isDragging ? "Drop files to add them" : "Drop files here or click to browse"}
                 </span>
                 <span className="mt-1 text-xs text-muted-foreground">
-                  PDF, JPG, or PNG up to your server limit
+                  PDF, JPG, or PNG · multiple files supported
                 </span>
                 <input
                   id="files"
@@ -228,40 +277,61 @@ export function UploadPageContent() {
             </div>
 
             {files.length > 0 ? (
-              <ul className="space-y-2">
-                {files.map((file, index) => (
-                  <li
-                    key={`${file.name}-${index}`}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm"
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    Ready to upload · {files.length}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setFiles([])}
                   >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatFileSize(file.size)}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => removeFile(index)}
-                      aria-label={`Remove ${file.name}`}
+                    Clear all
+                  </Button>
+                </div>
+                <ul className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                  {files.map((file, index) => (
+                    <li
+                      key={`${file.name}-${file.size}-${index}`}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-background/50 px-3 py-2 text-sm"
                     >
-                      <X className="size-4" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{file.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatFileSize(file.size)}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => removeFile(index)}
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
 
             <Button
-              className="w-full sm:w-auto"
+              className="w-full gap-2 sm:w-auto"
               disabled={!canUpload}
               onClick={() => void handleUpload()}
             >
-              {uploadMutation.isPending
-                ? "Uploading..."
-                : `Upload ${files.length || ""} file${files.length === 1 ? "" : "s"}`}
+              {uploadMutation.isPending ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Uploading...
+                </>
+              ) : (
+                `Upload ${files.length || ""} file${files.length === 1 ? "" : "s"}`.trim()
+              )}
             </Button>
           </CardContent>
         </Card>

@@ -45,7 +45,7 @@ export function LoginForm() {
 
       <div className="auth-card rounded-lg border p-6 sm:p-8">
         <div className="mb-6 space-y-2 text-center sm:mb-7">
-          <h1 className="font-heading text-[1.65rem] font-semibold tracking-[-0.03em] text-white text-balance">
+          <h1 className="font-heading text-2xl font-semibold tracking-[-0.025em] text-white text-balance">
             Welcome back
           </h1>
           <p className="text-sm leading-relaxed text-white/55">

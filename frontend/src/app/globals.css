@@ -383,15 +383,7 @@
 }
 
 .auth-accent-text {
-  background: linear-gradient(
-    105deg,
-    var(--auth-accent-bright) 0%,
-    var(--auth-accent) 45%,
-    oklch(0.7 0.1 230) 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--auth-accent-bright);
 }
 
 .auth-feature-icon {

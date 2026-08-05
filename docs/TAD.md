@@ -76,9 +76,8 @@ Backend
 
 AI
 
-* OCR Engine
-* LLM for metadata extraction
-* LLM for summarization
+* Extraction Engine (PyMuPDF → Docling → Tesseract → Gemini Vision)
+* LLM for classification, metadata, and summarization
 * Embedding Model
 * Retrieval-Augmented Generation (RAG)
 
@@ -166,7 +165,7 @@ Processes uploaded documents asynchronously.
 
 Responsibilities:
 
-* OCR
+* Text extraction (strategy-routed; AI-agnostic)
 * Metadata extraction
 * Document classification
 * Summary generation
@@ -193,7 +192,7 @@ User Uploads File
 Store Original File
         │
         ▼
-Extract Text (OCR if required)
+Extract Text (Extraction Engine: searchable PDF → native text; scanned → OCR/Docling; last resort → Vision)
         │
         ▼
 Classify Document

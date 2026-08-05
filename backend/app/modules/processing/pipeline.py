@@ -18,12 +18,12 @@ from app.ai.embeddings.provider import EmbeddingProvider
 from app.ai.llm.factory import create_llm_provider
 from app.ai.llm.provider import LLMProvider
 from app.ai.metadata import MetadataExtractionError, MetadataExtractor
-from app.ai.ocr import OcrError, OcrResult, OcrService
 from app.ai.schemas.metadata import ExtractedDocumentMetadata
 from app.ai.schemas.summary import DocumentSummary
 from app.ai.summarizer import DocumentSummarizer, SummarizationError
 from app.core.config.settings import Settings
-from app.core.database.enums import DocumentType, ProcessingStage
+from app.core.database.enums import DocumentType, ProcessingStage, is_extraction_stage
+from app.extraction import ExtractionEngine, ExtractionResult
 from app.modules.documents.models import Document
 from app.modules.documents.storage import LocalDocumentStorage
 from app.modules.processing.timeline import TimelineEventDraft, build_timeline_events
@@ -31,7 +31,7 @@ from app.modules.processing.timeline import TimelineEventDraft, build_timeline_e
 logger = logging.getLogger(__name__)
 
 PIPELINE_STAGES: tuple[ProcessingStage, ...] = (
-    ProcessingStage.OCR,
+    ProcessingStage.EXTRACT,
     ProcessingStage.CLASSIFICATION,
     ProcessingStage.METADATA_SUMMARY,
     ProcessingStage.EMBEDDINGS,
@@ -62,7 +62,7 @@ class SummaryOutput:
 class ProcessingState:
     document: Document
     job_id: UUID
-    ocr_result: OcrResult | None = None
+    extraction_result: ExtractionResult | None = None
     classification: ClassificationOutput | None = None
     metadata_output: MetadataOutput | None = None
     summary_output: SummaryOutput | None = None
@@ -78,7 +78,7 @@ class ProcessingPipeline:
         self,
         settings: Settings,
         *,
-        ocr: OcrService | None = None,
+        extraction_engine: ExtractionEngine | None = None,
         storage: LocalDocumentStorage | None = None,
         classifier: DocumentClassifier | None = None,
         metadata_extractor: MetadataExtractor | None = None,
@@ -88,7 +88,7 @@ class ProcessingPipeline:
         embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         self._settings = settings
-        self._ocr = ocr or OcrService(settings)
+        self._extraction = extraction_engine or ExtractionEngine(settings)
         self._storage = storage or LocalDocumentStorage(settings)
 
         if (
@@ -111,34 +111,46 @@ class ProcessingPipeline:
             )
 
     async def run_stage(self, stage: ProcessingStage, state: ProcessingState) -> ProcessingState:
-        if stage == ProcessingStage.OCR:
-            return await self._run_ocr(state)
+        if is_extraction_stage(stage):
+            return await self._run_extract(state)
         if stage == ProcessingStage.CLASSIFICATION:
             return await self._run_classification(state)
-        if stage in {ProcessingStage.METADATA, ProcessingStage.SUMMARY, ProcessingStage.METADATA_SUMMARY}:
+        if stage in {
+            ProcessingStage.METADATA,
+            ProcessingStage.SUMMARY,
+            ProcessingStage.METADATA_SUMMARY,
+        }:
             return await self._run_metadata_and_summary(state)
         if stage == ProcessingStage.EMBEDDINGS:
             return await self._run_embeddings(state)
         raise ValueError(f"Unsupported pipeline stage: {stage}")
 
-    async def _run_ocr(self, state: ProcessingState) -> ProcessingState:
+    async def _run_extract(self, state: ProcessingState) -> ProcessingState:
         file_path = self._storage.resolve_path(state.document.storage_path)
-        state.ocr_result = await asyncio.to_thread(
-            self._ocr.extract,
+        result = await self._extraction.extract(
             file_path,
-            state.document.content_type,
+            declared_content_type=state.document.content_type,
+            document_id=state.document.id,
         )
+        if result.quality_decision.value == "accept_with_warn":
+            logger.warning(
+                "Extraction accepted with warning for document %s (score=%.2f, extractor=%s)",
+                state.document.id,
+                result.quality_score,
+                result.extractor,
+            )
+        state.extraction_result = result
         return state
 
     async def _run_classification(self, state: ProcessingState) -> ProcessingState:
-        if state.ocr_result is None:
-            raise ClassificationError("OCR must run before classification")
+        if state.extraction_result is None:
+            raise ClassificationError("Extraction must run before classification")
 
         result = await self._classifier.classify(
-            state.ocr_result.text,
+            state.extraction_result.text,
             filename=state.document.original_filename,
             mime_type=state.document.content_type,
-            page_count=state.ocr_result.page_count,
+            page_count=state.extraction_result.page_count,
         )
         state.classification = ClassificationOutput(
             category=result.category,
@@ -151,15 +163,18 @@ class ProcessingPipeline:
         return state
 
     async def _run_metadata_and_summary(self, state: ProcessingState) -> ProcessingState:
-        if state.ocr_result is None or state.classification is None:
-            raise MetadataExtractionError("Classification must run before metadata and summary")
+        if state.extraction_result is None or state.classification is None:
+            raise MetadataExtractionError(
+                "Classification must run before metadata and summary"
+            )
 
+        text = state.extraction_result.text
         metadata_task = self._metadata.extract(
-            state.ocr_result.text,
+            text,
             document_type=state.classification.category,
         )
         summary_task = self._summarizer.summarize(
-            state.ocr_result.text,
+            text,
             document_type=state.classification.category,
         )
         metadata_result, summary_result = await asyncio.gather(metadata_task, summary_task)
@@ -183,8 +198,8 @@ class ProcessingPipeline:
         if state.rejected:
             raise EmbeddingError("Skipping embeddings for rejected document")
 
-        if state.ocr_result is None:
-            raise EmbeddingError("OCR must run before embeddings")
+        if state.extraction_result is None:
+            raise EmbeddingError("Extraction must run before embeddings")
 
-        state.embedding = await self._embedder.embed(state.ocr_result.text)
+        state.embedding = await self._embedder.embed(state.extraction_result.text)
         return state

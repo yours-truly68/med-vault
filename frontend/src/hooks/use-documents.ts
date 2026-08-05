@@ -32,7 +32,11 @@ export function useDocuments(options?: UseDocumentsOptions) {
       if (!pollWhileProcessing) return false;
       const items = query.state.data?.items ?? [];
       const busy = items.some(
-        (doc) => doc.status === "pending" || doc.status === "processing",
+        (doc) =>
+          doc.status === "pending" ||
+          doc.status === "processing" ||
+          doc.processing_job?.status === "rate_limited" ||
+          doc.processing_status === "embeddings",
       );
       return busy ? 3000 : false;
     },
@@ -51,7 +55,12 @@ export function useDocument(documentId: string) {
     refetchInterval: (query) => {
       const doc = query.state.data;
       if (!doc) return false;
-      if (doc.status === "pending" || doc.status === "processing") {
+      if (
+        doc.status === "pending" ||
+        doc.status === "processing" ||
+        doc.processing_job?.status === "rate_limited" ||
+        (doc.status === "completed" && doc.processing_status === "embeddings")
+      ) {
         return 3000;
       }
       return false;

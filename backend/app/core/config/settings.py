@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 25
 
-    # OCR / document processing
+    # OCR / document processing (used by Tesseract + PyMuPDF strategies)
     tesseract_cmd: str | None = None
     ocr_pdf_dpi: int = 150
     ocr_min_native_text_chars: int = 20
@@ -58,6 +58,30 @@ class Settings(BaseSettings):
     embedding_retry_base_seconds: float = 60.0
     embedding_retry_max_seconds: float = 900.0
     deferred_retry_poll_seconds: float = 30.0
+
+    # Extraction Engine
+    extraction_cache_enabled: bool = True
+    extraction_cache_dir: str = "./.cache/extraction"
+    extraction_cache_ttl_seconds: int | None = None
+    extraction_quality_accept_threshold: float = 0.9
+    extraction_quality_warn_threshold: float = 0.6
+    extraction_allow_low_quality_last_resort: bool = False
+    extraction_w_printable: float = 0.25
+    extraction_w_ocr_confidence: float = 0.25
+    extraction_w_density: float = 0.20
+    extraction_w_medical: float = 0.15
+    extraction_w_garbled: float = 0.15
+
+    # Docling (optional heavyweight extractor)
+    docling_enabled: bool = False
+    docling_timeout_seconds: float = 120.0
+
+    # Gemini Vision (last-resort extractor)
+    gemini_api_key: str | None = None
+    gemini_vision_enabled: bool = False
+    gemini_vision_model: str = "gemini-2.0-flash"
+    gemini_vision_timeout_seconds: float = 90.0
+    gemini_vision_max_pages: int = 20
 
     # LLM / classification
     llm_provider: str = "openai"

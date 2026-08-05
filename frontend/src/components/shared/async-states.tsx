@@ -29,6 +29,7 @@ type EmptyStateProps = {
   title: string;
   description?: string;
   action?: ReactNode;
+  secondaryAction?: ReactNode;
   className?: string;
 };
 
@@ -37,25 +38,37 @@ export function EmptyState({
   title,
   description,
   action,
+  secondaryAction,
   className,
 }: EmptyStateProps) {
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/80 px-6 py-12 text-center",
+        "flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-border/80 bg-muted/10 px-6 py-14 text-center",
         className,
       )}
     >
-      {Icon ? <Icon className="size-8 text-muted-foreground" /> : null}
-      <h2 className="font-heading text-lg font-semibold tracking-tight">
-        {title}
-      </h2>
-      {description ? (
-        <p className="max-w-sm text-sm text-muted-foreground text-pretty">
-          {description}
-        </p>
+      {Icon ? (
+        <span className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Icon className="size-6" aria-hidden />
+        </span>
       ) : null}
-      {action}
+      <div className="space-y-2">
+        <h2 className="font-heading text-lg font-semibold tracking-tight">
+          {title}
+        </h2>
+        {description ? (
+          <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground text-pretty">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      {action || secondaryAction ? (
+        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+          {action}
+          {secondaryAction}
+        </div>
+      ) : null}
     </div>
   );
 }

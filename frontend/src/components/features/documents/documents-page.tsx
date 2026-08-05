@@ -200,19 +200,35 @@ export function DocumentsPageContent() {
       {allDocuments.length === 0 ? (
         <EmptyState
           icon={FileText}
-          title="No documents yet"
-          description="Upload medical records to see them organized here with AI-generated summaries."
+          title="Your vault is empty"
+          description="Upload prescriptions, labs, bills, or imaging reports. MedVault will extract text, classify them, and write a summary you can search later."
           action={
             <Button asChild>
-              <Link href="/upload">Upload documents</Link>
+              <Link href="/upload">Upload your first document</Link>
+            </Button>
+          }
+          secondaryAction={
+            <Button asChild variant="outline">
+              <Link href="/family-members">Manage family</Link>
             </Button>
           }
         />
       ) : filteredDocuments.length === 0 ? (
         <EmptyState
           icon={Search}
-          title="No matches"
-          description="Try adjusting your type filter, family member, or search terms."
+          title="No matches for these filters"
+          description="Clear the type filter, switch family member, or try a shorter search phrase."
+          action={
+            <Button
+              variant="outline"
+              onClick={() => {
+                setLocalQuery("");
+                setDocumentType(null);
+              }}
+            >
+              Clear filters
+            </Button>
+          }
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">

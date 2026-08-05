@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAskChat } from "@/hooks/use-chat";
 import { ApiError } from "@/lib/api/errors";
 import { formatDate, formatDocumentType } from "@/lib/format";
+import { isRateLimitError } from "@/lib/processing";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/stores/ui-store";
 import type { ChatAskResponse, ChatCitation } from "@/types/api";
@@ -337,6 +338,7 @@ export function ChatPageContent() {
   const selectedFamilyMemberId = useUiStore(
     (state) => state.selectedFamilyMemberId,
   );
+  const notifyLlmRateLimited = useUiStore((state) => state.notifyLlmRateLimited);
 
   useEffect(() => {
     scrollAnchorRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -376,7 +378,17 @@ export function ChatPageContent() {
           error instanceof ApiError
             ? error.message
             : "Unable to get an answer right now.";
-        toast.error(message);
+
+        if (isRateLimitError(message) || (error instanceof ApiError && error.status === 429)) {
+          notifyLlmRateLimited({
+            key: `chat:${Date.now()}`,
+            source: "chat",
+            detail: message,
+          });
+        } else {
+          toast.error(message);
+        }
+
         setMessages((current) =>
           current.filter((item) => item.id !== userMessage.id),
         );
@@ -384,7 +396,7 @@ export function ChatPageContent() {
         textareaRef.current?.focus();
       }
     },
-    [askChat, selectedFamilyMemberId],
+    [askChat, notifyLlmRateLimited, selectedFamilyMemberId],
   );
 
   const handleSubmit = (event: FormEvent) => {

@@ -226,8 +226,10 @@ export function ProcessingPipeline({
           {["classification", "metadata_summary", "metadata", "summary", "embeddings"].includes(
             activeStage,
           )
-            ? "AI steps can take 30–90 seconds each. Metadata and summary now run in parallel."
-            : "This page refreshes every few seconds while processing."}
+            ? "AI steps can take 30–90 seconds each. Metadata and summary run in parallel."
+            : activeStage === "extract" || activeStage === "ocr"
+              ? "Choosing the fastest text extraction strategy for this file."
+              : "This page refreshes every few seconds while processing."}
         </div>
       ) : null}
     </section>

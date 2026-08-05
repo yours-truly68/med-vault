@@ -15,7 +15,6 @@ from app.ai.embeddings.embeddings import (
 )
 from app.ai.errors import RateLimitError
 from app.ai.metadata import MetadataExtractionError
-from app.ai.ocr import OcrError, OcrResult
 from app.ai.summarizer import SummarizationError
 from app.core.config.settings import Settings
 from app.core.database.enums import (
@@ -24,6 +23,8 @@ from app.core.database.enums import (
     ProcessingStage,
 )
 from app.core.database.session import Database
+from app.extraction import ExtractionError, ExtractionResult
+from app.extraction.models import QualityDecision
 from app.modules.documents.models import Document
 from app.modules.documents.repository import DocumentRepository
 from app.modules.processing.exceptions import ProcessingJobNotFoundError, ProcessingPausedError
@@ -242,7 +243,7 @@ class ProcessingService:
                 embeddings_only=embeddings_only,
             )
         except (
-            OcrError,
+            ExtractionError,
             ClassificationError,
             MetadataExtractionError,
             SummarizationError,
@@ -320,9 +321,15 @@ class ProcessingService:
                 return None
 
             state = ProcessingState(document=document, job_id=job_id)
-            state.ocr_result = OcrResult(
+            state.extraction_result = ExtractionResult(
                 text=document.extracted_text,
+                extractor="cached",
+                confidence=1.0,
+                quality_score=1.0,
+                quality_decision=QualityDecision.ACCEPT,
+                character_count=len(document.extracted_text),
                 page_count=document.page_count or 1,
+                elapsed_ms=0,
             )
             return state
 
@@ -338,8 +345,8 @@ class ProcessingService:
             return ProcessingStage.CLASSIFICATION
         if state.metadata_output is None or state.summary_output is None:
             return ProcessingStage.METADATA_SUMMARY
-        if state.ocr_result is None:
-            return ProcessingStage.OCR
+        if state.extraction_result is None:
+            return ProcessingStage.EXTRACT
         return ProcessingStage.EMBEDDINGS
 
     def _calculate_retry_delay(self, retry_count: int, retry_after: float | None) -> float:
@@ -379,7 +386,7 @@ class ProcessingService:
             and state.metadata_output is not None
             and state.summary_output is not None
             and state.classification is not None
-            and state.ocr_result is not None
+            and state.extraction_result is not None
         ):
             await self._persist_document_result(
                 document_id,
@@ -434,8 +441,7 @@ class ProcessingService:
         classification = state.classification
         metadata_output = state.metadata_output
         summary_output = state.summary_output
-        ocr_result = state.ocr_result
-
+        ocr_result = state.extraction_result
         if (
             classification is None
             or metadata_output is None
@@ -567,7 +573,7 @@ class ProcessingService:
         job_id: UUID,
         state: ProcessingState,
     ) -> None:
-        if self._database is None or state.classification is None or state.ocr_result is None:
+        if self._database is None or state.classification is None or state.extraction_result is None:
             return
 
         message = (
@@ -579,14 +585,14 @@ class ProcessingService:
             repo = DocumentRepository(session)
             document = await repo.get_by_id(document_id)
             if document is not None:
-                document.page_count = state.ocr_result.page_count
-                document.extracted_text = state.ocr_result.text
+                document.page_count = state.extraction_result.page_count
+                document.extracted_text = state.extraction_result.text
                 document.processing_status = ProcessingStage.READY.value
                 document.processed_at = datetime.now(UTC)
 
             await repo.set_processing_rejected(
                 document_id,
-                extracted_text=state.ocr_result.text,
+                extracted_text=state.extraction_result.text,
                 confidence=state.classification.confidence,
                 reasoning=state.classification.reasoning,
                 model_name=state.classification.model_name,
