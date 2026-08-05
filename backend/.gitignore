@@ -15,3 +15,6 @@ htmlcov/
 # Uploads
 uploads/*
 !uploads/.gitkeep
+
+# Test artifacts
+tests/output/
