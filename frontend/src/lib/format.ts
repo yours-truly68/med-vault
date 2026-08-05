@@ -13,7 +13,12 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 
 const DOCUMENT_STATUS_LABELS: Record<DocumentStatus, string> = {
   pending: "Pending",
+  uploaded: "Uploaded",
+  queued: "Queued",
   processing: "Processing",
+  ready: "Ready",
+  indexing: "Indexing",
+  indexed: "Indexed",
   completed: "Completed",
   failed: "Failed",
   rejected: "Rejected",

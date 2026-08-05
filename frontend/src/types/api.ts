@@ -249,13 +249,21 @@ export type ChatCitation = {
   summary: string | null;
 };
 
+export type SupportingLabValue = {
+  test_name: string;
+  value?: number | string | null;
+  unit?: string | null;
+  reference_low?: number | string | null;
+  reference_high?: number | string | null;
+};
+
 export type ChatSupportingDetails = {
   patient: string | null;
   doctor: string | null;
   hospital: string | null;
   diagnosis: string | null;
   medicines: string[];
-  lab_values: string[];
+  lab_values: SupportingLabValue[];
   procedures: string[];
   follow_up: string | null;
 };
