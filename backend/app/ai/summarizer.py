@@ -9,9 +9,10 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
-from app.ai.llm.errors import LLMProviderError
-from app.ai.llm.provider import ChatMessage, LLMProvider
+from app.ai.config import AITask
 from app.ai.prompts.loader import render_prompt
+from app.ai.providers.base import ChatMessage, ProviderError
+from app.ai.router import AITaskRouter
 from app.ai.schemas.summary import DocumentSummary
 from app.ai.text_compact import compact_document_text
 from app.core.database.enums import DocumentType
@@ -32,8 +33,8 @@ class SummarizationError(Exception):
 
 
 class DocumentSummarizer:
-    def __init__(self, provider: LLMProvider) -> None:
-        self._provider = provider
+    def __init__(self, router: AITaskRouter) -> None:
+        self._router = router
 
     async def summarize(
         self,
@@ -53,12 +54,13 @@ class DocumentSummarizer:
         )
 
         try:
-            completion = await self._provider.complete(
+            completion = await self._router.structured_output(
+                AITask.SUMMARY,
                 [ChatMessage(role="user", content=prompt)],
                 temperature=0.0,
                 max_tokens=1400,
             )
-        except LLMProviderError as exc:
+        except ProviderError as exc:
             raise SummarizationError(str(exc)) from exc
 
         summary = self._parse_response(completion.content)

@@ -21,7 +21,7 @@ import pytest
 
 from app.ai.classifier import ClassificationError, DocumentClassifier
 from app.ai.errors import RateLimitError
-from app.ai.llm.factory import create_llm_provider
+from app.ai.router import create_ai_router
 from app.ai.summarizer import DocumentSummarizer, SummarizationError
 from app.core.config.settings import Settings
 from app.core.database.enums import DocumentType
@@ -49,8 +49,8 @@ def _skip_on_rate_limit(exc: Exception) -> None:
 @pytest.mark.llm
 @pytest.mark.asyncio
 async def test_llm_provider_resolves(llm_settings: Settings) -> None:
-    provider = create_llm_provider(llm_settings)
-    assert provider is not None
+    router = create_ai_router(llm_settings)
+    assert router is not None
     assert bool(llm_settings.openai_api_key or llm_settings.llm_api_key)
 
 
@@ -68,9 +68,9 @@ async def test_extract_classify_summarize_medical_fixture(
         dummy_dataset_dir,
     )
     engine = ExtractionEngine(llm_settings)
-    provider = create_llm_provider(llm_settings)
-    classifier = DocumentClassifier(provider)
-    summarizer = DocumentSummarizer(provider)
+    router = create_ai_router(llm_settings)
+    classifier = DocumentClassifier(router)
+    summarizer = DocumentSummarizer(router)
 
     extraction = await engine.extract(path, declared_content_type="application/pdf")
     assert extraction.character_count > 50
@@ -129,7 +129,7 @@ async def test_classify_non_medical_decoy(
     """One decoy PDF: extract → classify (1 LLM call)."""
     path = _resolve_fixture("Bank_Statement.pdf", test_documents_dir, dummy_dataset_dir)
     engine = ExtractionEngine(llm_settings)
-    classifier = DocumentClassifier(create_llm_provider(llm_settings))
+    classifier = DocumentClassifier(create_ai_router(llm_settings))
 
     extraction = await engine.extract(path, declared_content_type="application/pdf")
     try:

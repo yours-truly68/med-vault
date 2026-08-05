@@ -35,6 +35,11 @@ def settings(tmp_path: Path) -> Settings:
         extraction_cache_enabled=True,
         docling_enabled=False,
         gemini_vision_enabled=False,
+        vision_fallback=None,
+        primary_pdf_extractor="pymupdf",
+        secondary_pdf_extractor=None,
+        image_extractor="tesseract",
+        tesseract_enabled=True,
         extraction_quality_accept_threshold=0.9,
         extraction_quality_warn_threshold=0.6,
     )
@@ -174,11 +179,15 @@ class TestExtractionRouter:
         assert router.plan(probe)[0] == ExtractorName.PYMUPDF
         assert ExtractorName.TESSERACT in router.plan(probe)
 
-    def test_gemini_appended_when_enabled(self, tmp_path: Path) -> None:
+    def test_vision_fallback_appended_when_configured(self, tmp_path: Path) -> None:
         settings = Settings(
             extraction_cache_dir=str(tmp_path / "cache"),
-            gemini_vision_enabled=True,
+            vision_fallback="gemini",
+            image_extractor="tesseract",
+            primary_pdf_extractor="pymupdf",
             gemini_api_key="test-key",
+            vision_provider="gemini",
+            vision_model="gemini-2.0-flash",
             docling_enabled=False,
         )
         router = ExtractionRouter(settings)

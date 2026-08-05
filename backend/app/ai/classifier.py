@@ -7,9 +7,10 @@ import logging
 import re
 from dataclasses import dataclass
 
-from app.ai.llm.errors import LLMProviderError
-from app.ai.llm.provider import ChatMessage, LLMProvider
+from app.ai.config import AITask
 from app.ai.prompts.loader import render_prompt
+from app.ai.providers.base import ChatMessage, ProviderError
+from app.ai.router import AITaskRouter
 from app.ai.text_compact import compact_document_text
 from app.core.database.enums import DocumentType
 
@@ -32,8 +33,8 @@ class ClassificationError(Exception):
 
 
 class DocumentClassifier:
-    def __init__(self, provider: LLMProvider) -> None:
-        self._provider = provider
+    def __init__(self, router: AITaskRouter) -> None:
+        self._router = router
 
     async def classify(
         self,
@@ -62,12 +63,13 @@ class DocumentClassifier:
         )
 
         try:
-            completion = await self._provider.complete(
+            completion = await self._router.structured_output(
+                AITask.CLASSIFICATION,
                 [ChatMessage(role="user", content=prompt)],
                 temperature=0.0,
                 max_tokens=400,
             )
-        except LLMProviderError as exc:
+        except ProviderError as exc:
             raise ClassificationError(str(exc)) from exc
 
         return self._parse_response(completion.content, completion.model)

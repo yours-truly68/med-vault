@@ -36,13 +36,19 @@ async def post_json_with_retry(
     max_retries: int = 5,
     base_delay_seconds: float = 5.0,
     max_delay_seconds: float = 120.0,
+    extra_params: dict[str, str] | None = None,
 ) -> dict:
     last_error: Exception | None = None
 
     for attempt in range(1, max_retries + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(url, headers=headers, json=payload)
+                response = await client.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    params=extra_params,
+                )
                 response.raise_for_status()
                 data = response.json()
                 if not isinstance(data, dict):

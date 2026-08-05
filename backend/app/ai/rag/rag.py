@@ -10,9 +10,10 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from app.ai.llm.errors import LLMProviderError
-from app.ai.llm.provider import ChatMessage, LLMProvider
+from app.ai.config import AITask
 from app.ai.prompts.loader import render_prompt
+from app.ai.providers.base import ChatMessage, ProviderError
+from app.ai.router import AITaskRouter
 from app.ai.schemas.rag import GroundedAnswer, RagCitation
 
 logger = logging.getLogger(__name__)
@@ -68,8 +69,8 @@ class RAGError(Exception):
 
 
 class RetrievalAugmentedGenerator:
-    def __init__(self, provider: LLMProvider) -> None:
-        self._provider = provider
+    def __init__(self, router: AITaskRouter) -> None:
+        self._router = router
 
     def build_context(self, documents: list[RetrievedDocument]) -> str:
         if not documents:
@@ -145,12 +146,13 @@ class RetrievalAugmentedGenerator:
         )
 
         try:
-            completion = await self._provider.complete(
+            completion = await self._router.structured_output(
+                AITask.CHAT,
                 [ChatMessage(role="user", content=prompt)],
                 temperature=0.0,
                 max_tokens=2200,
             )
-        except LLMProviderError as exc:
+        except ProviderError as exc:
             raise RAGError(str(exc)) from exc
 
         grounded = self._parse_response(completion.content)

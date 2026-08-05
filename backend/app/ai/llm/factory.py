@@ -1,38 +1,15 @@
-"""Factory for LLM providers."""
+"""Factory for LLM providers — routes through AITaskRouter for backward compatibility."""
 
 from __future__ import annotations
 
-from app.ai.llm.compatible_chat import OpenAICompatibleChatProvider
-from app.ai.llm.config import resolve_llm_config
-from app.ai.llm.errors import LLMProviderError
+from app.ai.adapters import create_task_llm_provider
+from app.ai.config import AITask
 from app.ai.llm.provider import LLMProvider
+from app.ai.router import create_ai_router
 from app.core.config.settings import Settings
 
-SUPPORTED_LLM_PROVIDERS = frozenset({
-    "openai",
-    "groq",
-    "vercel",
-    "ollama",
-    "local",
-    "openai_compatible",
-    "openai-compatible",
-})
 
-
-def create_llm_provider(settings: Settings) -> LLMProvider:
-    provider = settings.llm_provider.lower().strip()
-    if provider not in SUPPORTED_LLM_PROVIDERS:
-        raise LLMProviderError(
-            f"Unsupported LLM provider: {settings.llm_provider}. "
-            f"Supported: {', '.join(sorted(SUPPORTED_LLM_PROVIDERS))}"
-        )
-
-    config = resolve_llm_config(settings)
-    return OpenAICompatibleChatProvider(
-        api_key=config.api_key,
-        model=config.model,
-        base_url=config.base_url,
-        timeout_seconds=config.timeout_seconds,
-        supports_json_mode=config.supports_json_mode,
-        provider_label=config.provider,
-    )
+def create_llm_provider(settings: Settings, *, task: AITask = AITask.CHAT) -> LLMProvider:
+    """Create an LLMProvider backed by the task router (defaults to chat/RAG task)."""
+    router = create_ai_router(settings)
+    return create_task_llm_provider(router, task)

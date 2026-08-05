@@ -13,10 +13,7 @@ from app.ai.embeddings.embeddings import (
     DocumentEmbeddingResult,
     EmbeddingError,
 )
-from app.ai.embeddings.factory import create_embedding_provider
-from app.ai.embeddings.provider import EmbeddingProvider
-from app.ai.llm.factory import create_llm_provider
-from app.ai.llm.provider import LLMProvider
+from app.ai.router import AITaskRouter, create_ai_router
 from app.ai.metadata import MetadataExtractionError, MetadataExtractor
 from app.ai.schemas.metadata import ExtractedDocumentMetadata
 from app.ai.schemas.summary import DocumentSummary
@@ -84,12 +81,13 @@ class ProcessingPipeline:
         metadata_extractor: MetadataExtractor | None = None,
         summarizer: DocumentSummarizer | None = None,
         embedder: DocumentEmbedder | None = None,
-        llm_provider: LLMProvider | None = None,
-        embedding_provider: EmbeddingProvider | None = None,
+        router: AITaskRouter | None = None,
     ) -> None:
         self._settings = settings
         self._extraction = extraction_engine or ExtractionEngine(settings)
         self._storage = storage or LocalDocumentStorage(settings)
+
+        ai_router = router or create_ai_router(settings)
 
         if (
             classifier is not None
@@ -102,13 +100,10 @@ class ProcessingPipeline:
             self._summarizer = summarizer
             self._embedder = embedder
         else:
-            chat_provider = llm_provider or create_llm_provider(settings)
-            self._classifier = classifier or DocumentClassifier(chat_provider)
-            self._metadata = metadata_extractor or MetadataExtractor(chat_provider)
-            self._summarizer = summarizer or DocumentSummarizer(chat_provider)
-            self._embedder = embedder or DocumentEmbedder(
-                embedding_provider or create_embedding_provider(settings)
-            )
+            self._classifier = classifier or DocumentClassifier(ai_router)
+            self._metadata = metadata_extractor or MetadataExtractor(ai_router)
+            self._summarizer = summarizer or DocumentSummarizer(ai_router)
+            self._embedder = embedder or DocumentEmbedder(ai_router)
 
     async def run_stage(self, stage: ProcessingStage, state: ProcessingState) -> ProcessingState:
         if is_extraction_stage(stage):

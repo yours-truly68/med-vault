@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.ai.embeddings.factory import create_embedding_provider
 from app.ai.embeddings.pg_vector_store import PgVectorStore
-from app.ai.llm.factory import create_llm_provider
+from app.ai.router import create_ai_router
 from app.ai.rag import RAGError, RetrievalAugmentedGenerator, RetrievedDocument
 from app.core.config.settings import Settings
 from app.core.exceptions import ValidationError
@@ -48,7 +48,7 @@ class ChatService:
                 PgVectorStore(session),
             )
 
-        self._rag = rag or RetrievalAugmentedGenerator(create_llm_provider(settings))
+        self._rag = rag or RetrievalAugmentedGenerator(create_ai_router(settings))
 
     async def ask(self, user: User, payload: ChatAskRequest) -> ChatAskResponse:
         top_k = payload.top_k or self._settings.rag_top_k

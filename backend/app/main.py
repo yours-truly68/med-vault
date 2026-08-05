@@ -12,7 +12,7 @@ from app.core.database.session import Database
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.middleware import RequestLoggingMiddleware
-from app.workers.in_process import InProcessDocumentWorker
+from app.ai.validation import ConfigurationError, validate_application_configuration
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
+    try:
+        validate_application_configuration(settings)
+    except ConfigurationError as exc:
+        logger.error("Configuration validation failed: %s", exc)
+        raise
+
     database = Database(settings)
     app.state.database = database
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from pathlib import Path
@@ -118,7 +119,10 @@ class ExtractionEngine:
 
             attempt_started = time.perf_counter()
             try:
-                raw = await extractor.extract(request)
+                raw = await asyncio.wait_for(
+                    extractor.extract(request),
+                    timeout=self._settings.extraction_timeout_seconds,
+                )
                 quality = self._quality.score(raw, is_ocr=name in OCR_EXTRACTORS)
                 duration_ms = (time.perf_counter() - attempt_started) * 1000
                 attempts.append(
@@ -168,6 +172,22 @@ class ExtractionEngine:
                 if best_rejected is None or result.quality_score > best_rejected.quality_score:
                     best_rejected = result
 
+            except asyncio.TimeoutError:
+                duration_ms = (time.perf_counter() - attempt_started) * 1000
+                attempts.append(
+                    FallbackAttempt(
+                        extractor=name,
+                        duration_ms=duration_ms,
+                        error=f"timeout after {self._settings.extraction_timeout_seconds}s",
+                    )
+                )
+                logger.warning(
+                    "Extractor %s timed out for %s after %.0fs",
+                    name.value,
+                    path.name,
+                    self._settings.extraction_timeout_seconds,
+                )
+                continue
             except ExtractionError as exc:
                 duration_ms = (time.perf_counter() - attempt_started) * 1000
                 attempts.append(

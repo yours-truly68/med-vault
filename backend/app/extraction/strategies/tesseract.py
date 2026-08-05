@@ -34,18 +34,22 @@ class TesseractExtractor(BaseExtractor):
     name: ClassVar[ExtractorName] = ExtractorName.TESSERACT
 
     def __init__(self, settings: Settings) -> None:
+        self._enabled = settings.tesseract_enabled
         self._pdf_dpi = settings.ocr_pdf_dpi
         self._max_workers = max(1, settings.ocr_max_workers)
+        self._ocr_language = settings.ocr_language
         if settings.tesseract_cmd:
             pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
 
     def supports(self, probe: FileProbe) -> bool:
-        return probe.kind in {FileKind.PDF, FileKind.IMAGE}
+        return self._enabled and probe.kind in {FileKind.PDF, FileKind.IMAGE}
 
     async def extract(self, request: ExtractionRequest) -> RawExtraction:
         return await asyncio.to_thread(self._extract_sync, request)
 
     async def health_check(self) -> ExtractorHealth:
+        if not self._enabled:
+            return ExtractorHealth(name=self.name, healthy=False, detail="disabled")
         started = time.perf_counter()
         try:
             version = await asyncio.to_thread(pytesseract.get_tesseract_version)
@@ -69,8 +73,12 @@ class TesseractExtractor(BaseExtractor):
     def _extract_image(self, path) -> RawExtraction:
         try:
             with Image.open(path) as image:
-                data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-                text = pytesseract.image_to_string(image).strip()
+                data = pytesseract.image_to_data(
+                    image,
+                    lang=self._ocr_language,
+                    output_type=pytesseract.Output.DICT,
+                )
+                text = pytesseract.image_to_string(image, lang=self._ocr_language).strip()
                 confidence = self._mean_confidence(data)
         except Exception as exc:
             raise CorruptFileError(f"Failed to OCR image: {exc}") from exc
@@ -155,8 +163,12 @@ class TesseractExtractor(BaseExtractor):
                 page = document[page_index]
                 pixmap = page.get_pixmap(dpi=self._pdf_dpi)
                 image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
-                data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-                text = pytesseract.image_to_string(image).strip()
+                data = pytesseract.image_to_data(
+                    image,
+                    lang=self._ocr_language,
+                    output_type=pytesseract.Output.DICT,
+                )
+                text = pytesseract.image_to_string(image, lang=self._ocr_language).strip()
                 return text, self._mean_confidence(data)
         except Exception as exc:
             raise CorruptFileError(f"Failed to OCR PDF page {page_index + 1}: {exc}") from exc
