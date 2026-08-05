@@ -66,7 +66,7 @@ export function HealthTrendsPreview({ familyMemberId }: HealthTrendsPreviewProps
     return null;
   }
 
-  if (trendsQuery.isLoading) {
+  if (trendsQuery.isPending && trendsQuery.fetchStatus === "fetching" && !trendsQuery.data) {
     return (
       <Card>
         <CardHeader>

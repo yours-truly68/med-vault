@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { AuthGuard } from "@/components/auth";
 import { Navbar, Sidebar } from "@/components/layout";
 import { LlmBusyBanner, LlmRateLimitWatcher } from "@/components/shared";
+import { MedVaultCopilotLauncher } from "@/components/copilot/copilot-launcher";
 
 type DashboardLayoutProps = {
   children: ReactNode;
@@ -30,6 +31,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
         </div>
       </div>
+
+      {/* Universal MedVault Copilot Floating / Docked Assistant */}
+      <MedVaultCopilotLauncher />
     </AuthGuard>
   );
 }

@@ -14,13 +14,12 @@ import { useAuthStore } from "@/stores/auth-store";
 
 export function useFamilyMembers() {
   const accessToken = useAuthStore((state) => state.accessToken);
-  const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   return useQuery({
     queryKey: queryKeys.familyMembers.all,
-    queryFn: () => listFamilyMembers(accessToken),
-    enabled: hasHydrated && isAuthenticated,
+    queryFn: () => listFamilyMembers(accessToken || useAuthStore.getState().accessToken),
+    enabled: Boolean(accessToken) || isAuthenticated,
   });
 }
 

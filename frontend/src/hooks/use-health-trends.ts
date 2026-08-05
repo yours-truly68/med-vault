@@ -11,7 +11,6 @@ export function useHealthTrends(
   params?: HealthTrendsParams,
 ) {
   const accessToken = useAuthStore((state) => state.accessToken);
-  const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   return useQuery({
@@ -19,7 +18,7 @@ export function useHealthTrends(
       ...queryKeys.health.trends(familyMemberId ?? "none"),
       params,
     ] as const,
-    queryFn: () => getHealthTrends(accessToken, familyMemberId!, params),
-    enabled: hasHydrated && isAuthenticated && Boolean(familyMemberId),
+    queryFn: () => getHealthTrends(accessToken || useAuthStore.getState().accessToken, familyMemberId!, params),
+    enabled: (Boolean(accessToken) || isAuthenticated) && Boolean(familyMemberId),
   });
 }
