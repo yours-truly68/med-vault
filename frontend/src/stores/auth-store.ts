@@ -26,11 +26,20 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       hasHydrated: false,
       setSession: (user, accessToken) =>
-        set({ user, accessToken, isAuthenticated: true }),
+        set({ user, accessToken, isAuthenticated: true, hasHydrated: true }),
       setAccessToken: (accessToken) =>
-        set({ accessToken, isAuthenticated: Boolean(accessToken) }),
+        set({
+          accessToken,
+          isAuthenticated: Boolean(accessToken),
+          hasHydrated: true,
+        }),
       clearSession: () =>
-        set({ user: null, accessToken: null, isAuthenticated: false }),
+        set({
+          user: null,
+          accessToken: null,
+          isAuthenticated: false,
+          hasHydrated: true,
+        }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
     }),
     {

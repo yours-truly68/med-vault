@@ -14,6 +14,14 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
   const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const setHasHydrated = useAuthStore((state) => state.setHasHydrated);
+
+  useEffect(() => {
+    // Client-side hydration fallback
+    if (!hasHydrated) {
+      setHasHydrated(true);
+    }
+  }, [hasHydrated, setHasHydrated]);
 
   useEffect(() => {
     if (hasHydrated && !isAuthenticated) {

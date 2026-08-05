@@ -19,13 +19,13 @@ import { useAuthStore } from "@/stores/auth-store";
 export function useCurrentUser() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const hasHydrated = useAuthStore((state) => state.hasHydrated);
 
   return useQuery({
     queryKey: queryKeys.auth.me,
     queryFn: async () => {
+      const activeToken = accessToken || useAuthStore.getState().accessToken;
       try {
-        const session = await getMe(accessToken);
+        const session = await getMe(activeToken);
         return session.user;
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -39,7 +39,7 @@ export function useCurrentUser() {
         throw error;
       }
     },
-    enabled: hasHydrated && isAuthenticated,
+    enabled: Boolean(accessToken) || isAuthenticated,
     retry: false,
   });
 }
