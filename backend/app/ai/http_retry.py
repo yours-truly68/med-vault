@@ -33,9 +33,9 @@ async def post_json_with_retry(
     payload: dict,
     timeout: float,
     error_label: str,
-    max_retries: int = 5,
-    base_delay_seconds: float = 5.0,
-    max_delay_seconds: float = 120.0,
+    max_retries: int = 2,
+    base_delay_seconds: float = 0.5,
+    max_delay_seconds: float = 2.0,
     extra_params: dict[str, str] | None = None,
 ) -> dict:
     last_error: Exception | None = None
@@ -65,12 +65,12 @@ async def post_json_with_retry(
                 )
                 if attempt == max_retries:
                     raise RateLimitError(
-                        f"{error_label} rate limit exceeded after {max_retries} attempts",
+                        f"{error_label} rate limit exceeded",
                         retry_after_seconds=delay,
                         provider_label=error_label,
                     ) from exc
                 logger.warning(
-                    "%s returned 429; retrying in %.0fs (%s/%s)",
+                    "%s returned 429; fail-fast switching provider in %.1fs (%s/%s)",
                     error_label,
                     delay,
                     attempt,

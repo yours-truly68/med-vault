@@ -6,7 +6,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Sequence
+from typing import AsyncGenerator, Sequence
 
 from app.ai.capabilities import provider_supports_task
 from app.ai.config import AITask, TaskRoute, resolve_task_routes
@@ -44,6 +44,8 @@ class RouterExecutionMeta:
     usage_prompt_tokens: int | None = None
     usage_completion_tokens: int | None = None
     usage_total_tokens: int | None = None
+    finish_reason: str | None = None
+    response_length: int | None = None
     error: str | None = None
 
 
@@ -126,7 +128,8 @@ class AITaskRouter:
     def _log_execution(self, meta: RouterExecutionMeta) -> None:
         logger.info(
             "AI router: task=%s provider=%s model=%s latency_ms=%.0f success=%s "
-            "retries=%s fallback=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s error=%s",
+            "retries=%s fallback=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s "
+            "finish_reason=%s response_len=%s error=%s",
             meta.task,
             meta.provider,
             meta.model,
@@ -137,6 +140,8 @@ class AITaskRouter:
             meta.usage_prompt_tokens,
             meta.usage_completion_tokens,
             meta.usage_total_tokens,
+            meta.finish_reason,
+            meta.response_length,
             meta.error,
         )
 
@@ -197,6 +202,34 @@ class AITaskRouter:
                 max_tokens=max_tokens,
             ),
         )
+
+    async def stream(
+        self,
+        task: AITask,
+        messages: Sequence[ChatMessage],
+        *,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+    ) -> AsyncGenerator[str, None]:
+        candidates = self._route_candidates(task)
+        provider_name, model = candidates[0]
+        provider = self._get_provider(provider_name)
+        if hasattr(provider, "stream"):
+            async for token in provider.stream(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                yield token
+        else:
+            res = await provider.generate(
+                messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            yield res.content
 
     async def structured_output(
         self,
@@ -297,9 +330,13 @@ class AITaskRouter:
         usage_prompt: int | None = None
         usage_completion: int | None = None
         usage_total: int | None = None
+        finish_reason: str | None = None
+        response_length: int | None = None
 
         if isinstance(result, GenerationResult):
             model = result.model
+            finish_reason = result.finish_reason
+            response_length = len(result.content) if result.content else 0
             if result.usage:
                 usage_prompt = result.usage.prompt_tokens
                 usage_completion = result.usage.completion_tokens
@@ -321,6 +358,8 @@ class AITaskRouter:
                 usage_prompt_tokens=usage_prompt,
                 usage_completion_tokens=usage_completion,
                 usage_total_tokens=usage_total,
+                finish_reason=finish_reason,
+                response_length=response_length,
             )
         )
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import ClassVar, Sequence
+from typing import AsyncGenerator, ClassVar, Sequence
 
 import httpx
 
@@ -110,6 +111,55 @@ class OpenAICompatibleProvider:
         }
         data = await self._post_chat(payload)
         return self._parse_chat_response(data, model)
+
+    async def stream(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+    ) -> AsyncGenerator[str, None]:
+        if not model:
+            raise ValidationProviderError("Model is required")
+        payload = {
+            "model": model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        url = f"{self._base_url}/chat/completions"
+
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    if response.status_code != 200:
+                        await response.aread()
+                        raise ProviderError(f"{self._label} stream API error {response.status_code}")
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        if line.startswith("data: "):
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                data = json.loads(data_str)
+                                choices = data.get("choices", [])
+                                if choices:
+                                    delta = choices[0].get("delta", {})
+                                    content = delta.get("content")
+                                    if content:
+                                        yield content
+                            except json.JSONDecodeError:
+                                continue
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"{self._label} stream connection error: {exc}") from exc
 
     async def structured_output(
         self,
@@ -252,11 +302,16 @@ class OpenAICompatibleProvider:
         if not content or not str(content).strip():
             raise ProviderError(f"{self._label} returned empty content")
 
+        finish_reason = None
+        if isinstance(data.get("choices"), list) and data["choices"]:
+            finish_reason = data["choices"][0].get("finish_reason")
+
         return GenerationResult(
             content=str(content).strip(),
             model=model,
             provider=self._label,
             usage=_parse_usage(data),
+            finish_reason=str(finish_reason) if finish_reason else None,
         )
 
 

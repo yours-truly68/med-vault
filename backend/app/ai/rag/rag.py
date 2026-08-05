@@ -72,6 +72,35 @@ class RetrievalAugmentedGenerator:
     def __init__(self, router: AITaskRouter) -> None:
         self._router = router
 
+    def build_compressed_context(self, documents: list[RetrievedDocument]) -> str:
+        if not documents:
+            return ""
+
+        blocks: list[str] = []
+        for index, doc in enumerate(documents, start=1):
+            short_excerpt = (doc.extracted_text or "").strip()
+            if len(short_excerpt) > 400:
+                short_excerpt = short_excerpt[:399] + "…"
+
+            compact = {
+                "id": str(doc.document_id),
+                "title": doc.original_filename,
+                "type": doc.document_type or "medical_record",
+                "date": doc.document_date or "unknown",
+                "summary": doc.summary,
+                "diagnosis": doc.diagnosis,
+                "key_findings": doc.key_findings[:3] if doc.key_findings else [],
+                "abnormal_labs": [
+                    f"{l.get('test_name')}: {l.get('value')} {l.get('unit') or ''}"
+                    for l in doc.lab_measurements[:4]
+                ] if doc.lab_measurements else [],
+                "excerpt": short_excerpt or None,
+            }
+            blocks.append(
+                f"[Document {index}]\n" + json.dumps(compact, ensure_ascii=True)
+            )
+        return "\n\n".join(blocks)
+
     def build_context(self, documents: list[RetrievedDocument]) -> str:
         if not documents:
             return ""
@@ -118,6 +147,40 @@ class RetrievalAugmentedGenerator:
                 )
             )
         return "\n\n".join(blocks)
+
+    async def stream_generate(
+        self,
+        question: str,
+        documents: list[RetrievedDocument],
+    ):
+        cleaned_question = question.strip()
+        if not cleaned_question:
+            raise RAGError("Question must not be empty")
+
+        if not documents:
+            yield NO_CONTEXT_ANSWER
+            return
+
+        context = self.build_compressed_context(documents)
+        prompt = (
+            f"You are MedVault Copilot, a helpful AI medical record assistant.\n"
+            f"Answer the user question using ONLY the provided medical context below.\n"
+            f"Be concise, clear, empathetic, and grounded in the source documents.\n\n"
+            f"CONTEXT:\n{context}\n\n"
+            f"USER QUESTION: {cleaned_question}\n"
+            f"ANSWER:"
+        )
+
+        try:
+            async for token in self._router.stream(
+                AITask.CHAT,
+                [ChatMessage(role="user", content=prompt)],
+                temperature=0.1,
+                max_tokens=1500,
+            ):
+                yield token
+        except Exception as exc:
+            raise RAGError(f"Streaming generation failed: {exc}") from exc
 
     async def generate(
         self,

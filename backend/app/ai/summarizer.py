@@ -53,24 +53,67 @@ class DocumentSummarizer:
             document_type=document_type.value,
         )
 
+        messages = [ChatMessage(role="user", content=prompt)]
+
+        # Attempt 1
         try:
             completion = await self._router.structured_output(
                 AITask.SUMMARY,
-                [ChatMessage(role="user", content=prompt)],
+                messages,
                 temperature=0.0,
-                max_tokens=1400,
+                max_tokens=2000,
             )
-        except ProviderError as exc:
-            raise SummarizationError(str(exc)) from exc
+            summary = self._parse_response(completion.content)
+            logger.info(
+                "Summarization succeeded on attempt 1: model=%s response_len=%d finish_reason=%s",
+                completion.model,
+                len(completion.content),
+                completion.finish_reason,
+            )
+            return SummarizationResult(summary=summary, model_name=completion.model)
+        except (SummarizationError, ProviderError) as exc:
+            logger.warning(
+                "Summarization parsing/validation failed on attempt 1: %s. Retrying once...",
+                exc,
+            )
 
-        summary = self._parse_response(completion.content)
-        return SummarizationResult(summary=summary, model_name=completion.model)
+        # Retry (Attempt 2) with explicit clarification prompt per Task 3 & 5
+        retry_instruction = (
+            "The previous response contained invalid or truncated JSON. "
+            "Return ONLY valid JSON matching the exact schema requested. "
+            "Do not include any explanation or commentary."
+        )
+        retry_messages = [
+            ChatMessage(role="user", content=prompt),
+            ChatMessage(role="assistant", content=completion.content if 'completion' in locals() else ""),
+            ChatMessage(role="user", content=retry_instruction),
+        ]
+
+        try:
+            completion = await self._router.structured_output(
+                AITask.SUMMARY,
+                retry_messages,
+                temperature=0.0,
+                max_tokens=2000,
+            )
+            summary = self._parse_response(completion.content)
+            logger.info(
+                "Summarization succeeded on retry attempt 2: model=%s response_len=%d finish_reason=%s",
+                completion.model,
+                len(completion.content),
+                completion.finish_reason,
+            )
+            return SummarizationResult(summary=summary, model_name=completion.model)
+        except (SummarizationError, ProviderError) as exc:
+            logger.error("Summarization failed after retry: %s", exc)
+            raise SummarizationError(f"Summary failed structured parsing after retry: {exc}") from exc
 
     def _parse_response(self, raw: str) -> DocumentSummary:
         payload = self._extract_json(raw)
         try:
             return DocumentSummary.model_validate(payload)
         except ValidationError as exc:
+            logger.warning("Summary payload failed Pydantic validation: %s", exc)
             raise SummarizationError(
                 f"Summary failed structured validation: {exc}"
             ) from exc
@@ -81,8 +124,11 @@ class DocumentSummarizer:
         if fence:
             cleaned = fence.group(1).strip()
 
+        # Sanitize common trailing comma issues before parsing
+        cleaned_json = re.sub(r",\s*([\]}])", r"\1", cleaned)
+
         try:
-            data = json.loads(cleaned)
+            data = json.loads(cleaned_json)
         except json.JSONDecodeError as exc:
             raise SummarizationError(
                 f"Summary response is not valid JSON: {raw[:300]}"

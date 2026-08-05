@@ -99,11 +99,51 @@ class DocumentSummary(BaseModel):
 
     @field_validator("highlights", mode="before")
     @classmethod
-    def coerce_highlights(cls, value: Any) -> Any:
+    def coerce_highlights(cls, value: Any) -> list[str]:
         if value is None:
             return []
         if isinstance(value, str):
-            return [line.strip() for line in value.splitlines() if line.strip()]
+            lines = [line.strip() for line in value.splitlines() if line.strip()]
+            return [cls._clean_single_highlight(l) for l in lines if cls._clean_single_highlight(l)]
         if isinstance(value, list):
-            return [str(item).strip() for item in value if str(item).strip()]
+            results: list[str] = []
+            for item in value:
+                cleaned = cls._clean_single_highlight(item)
+                if cleaned:
+                    results.append(cleaned)
+            return results
         return []
+
+    @classmethod
+    def _clean_single_highlight(cls, item: Any) -> str | None:
+        if item is None:
+            return None
+        if isinstance(item, str):
+            trimmed = item.strip()
+            if not trimmed:
+                return None
+            if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("{'") and trimmed.endswith("'}")):
+                try:
+                    import json
+                    parsed = json.loads(trimmed)
+                    if isinstance(parsed, dict):
+                        val = parsed.get("item") or parsed.get("highlight") or parsed.get("text") or parsed.get("finding")
+                        if val and isinstance(val, str):
+                            return val.strip()
+                except Exception:
+                    pass
+                import re
+                m = re.search(r"['\"]item['\"]:\s*['\"]([^'\"]+)['\"]", trimmed)
+                if m:
+                    return m.group(1).strip()
+            return trimmed
+        if isinstance(item, dict):
+            val = item.get("item") or item.get("highlight") or item.get("text") or item.get("finding")
+            if val and isinstance(val, str):
+                return val.strip()
+            if item:
+                first_val = next(iter(item.values()))
+                if isinstance(first_val, str):
+                    return first_val.strip()
+        val_str = str(item).strip()
+        return val_str if val_str else None

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, Sequence
+from typing import AsyncGenerator, Protocol, Sequence
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class GenerationResult:
     model: str
     provider: str
     usage: TokenUsage | None = None
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,16 @@ class AIProvider(Protocol):
         temperature: float = 0.0,
         max_tokens: int = 512,
     ) -> GenerationResult:
+        ...
+
+    async def stream(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+    ) -> AsyncGenerator[str, None]:
         ...
 
     async def structured_output(
