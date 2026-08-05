@@ -95,6 +95,37 @@ export type DocumentSummary = {
   highlights: string[];
 };
 
+export type ProcessingStage =
+  | "uploaded"
+  | "ocr"
+  | "classification"
+  | "metadata"
+  | "summary"
+  | "metadata_summary"
+  | "embeddings"
+  | "ready"
+  | "failed";
+
+export type ProcessingJobStatus =
+  | "pending"
+  | "running"
+  | "paused"
+  | "rate_limited"
+  | "completed"
+  | "failed";
+
+export type DocumentProcessingJob = {
+  id: string;
+  stage: ProcessingStage;
+  status: ProcessingJobStatus;
+  error_message: string | null;
+  retry_count: number;
+  next_retry_at: string | null;
+  wait_reason: string | null;
+  started_at: string | null;
+  updated_at: string;
+};
+
 export type Document = {
   id: string;
   family_member_id: string;
@@ -103,6 +134,8 @@ export type Document = {
   file_size_bytes: number;
   page_count: number | null;
   status: DocumentStatus;
+  processing_status: ProcessingStage;
+  processing_job: DocumentProcessingJob | null;
   document_type: DocumentType | null;
   document_date: string | null;
   classification_confidence: number | null;
@@ -111,6 +144,8 @@ export type Document = {
   summary: DocumentSummary | null;
   extracted_text: string | null;
   processing_error: string | null;
+  uploaded_at: string | null;
+  processed_at: string | null;
   created_at: string;
   updated_at: string;
 };

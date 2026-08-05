@@ -63,6 +63,7 @@ class DocumentRepository:
                 selectinload(Document.document_metadata),
                 selectinload(Document.ai_summary),
                 selectinload(Document.lab_measurements),
+                selectinload(Document.processing_jobs),
             )
             .where(Document.user_id == user_id)
             .order_by(Document.created_at.desc())
@@ -84,6 +85,7 @@ class DocumentRepository:
                 selectinload(Document.document_metadata),
                 selectinload(Document.ai_summary),
                 selectinload(Document.lab_measurements),
+                selectinload(Document.processing_jobs),
             )
             .where(Document.id == document_id)
         )
@@ -344,6 +346,7 @@ class DocumentRepository:
                 selectinload(Document.document_metadata),
                 selectinload(Document.ai_summary),
                 selectinload(Document.lab_measurements),
+                selectinload(Document.processing_jobs),
             )
             .where(
                 Document.id == document_id,

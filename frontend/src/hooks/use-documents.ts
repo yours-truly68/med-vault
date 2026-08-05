@@ -48,6 +48,14 @@ export function useDocument(documentId: string) {
     queryKey: queryKeys.documents.detail(documentId),
     queryFn: () => getDocument(accessToken, documentId),
     enabled: hasHydrated && isAuthenticated && Boolean(documentId),
+    refetchInterval: (query) => {
+      const doc = query.state.data;
+      if (!doc) return false;
+      if (doc.status === "pending" || doc.status === "processing") {
+        return 3000;
+      }
+      return false;
+    },
   });
 }
 

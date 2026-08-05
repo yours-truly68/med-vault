@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.classifier import ClassificationError
-from app.ai.embeddings.embeddings import EmbeddingError
+from app.ai.embeddings.embeddings import (
+    DocumentEmbeddingResult,
+    EmbeddingError,
+)
+from app.ai.errors import RateLimitError
 from app.ai.metadata import MetadataExtractionError
-from app.ai.ocr import OcrError
+from app.ai.ocr import OcrError, OcrResult
 from app.ai.summarizer import SummarizationError
 from app.core.config.settings import Settings
 from app.core.database.enums import (
@@ -95,6 +99,7 @@ class ProcessingService:
             active_jobs=counts.get(ProcessingJobStatus.RUNNING.value, 0),
             paused_jobs=counts.get(ProcessingJobStatus.PAUSED.value, 0),
             pending_jobs=counts.get(ProcessingJobStatus.PENDING.value, 0),
+            rate_limited_jobs=await repo.count_rate_limited_jobs(),
         )
 
     async def pause_global(self, user: User) -> ProcessingControlResponse:
@@ -143,7 +148,12 @@ class ProcessingService:
         await self._session.commit()
         return ProcessingJobResponse.model_validate(resumed)
 
-    async def process_document(self, document_id: UUID) -> None:
+    async def process_document(
+        self,
+        document_id: UUID,
+        *,
+        embeddings_only: bool = False,
+    ) -> None:
         """Entry point used by background workers (BackgroundTasks, Celery, ARQ, etc.)."""
         if self._database is None:
             raise RuntimeError("Database handle is required for background processing")
@@ -157,7 +167,7 @@ class ProcessingService:
                 logger.warning("Document %s not found; skipping processing", document_id)
                 return
 
-            if document.status not in PROCESSABLE_DOCUMENT_STATUSES:
+            if not embeddings_only and document.status not in PROCESSABLE_DOCUMENT_STATUSES:
                 logger.info(
                     "Document %s has status %r; skipping processing",
                     document_id,
@@ -179,15 +189,27 @@ class ProcessingService:
                 logger.info("Global processing pause active; job %s paused", job.id)
                 return
 
-            await document_repo.update_status(document_id, DocumentStatus.PROCESSING)
-            document.processing_status = ProcessingStage.UPLOADED.value
-            await processing_repo.mark_job_running(job.id, stage=ProcessingStage.UPLOADED)
-            await session.commit()
+            if not embeddings_only:
+                await document_repo.update_status(document_id, DocumentStatus.PROCESSING)
+                document.processing_status = ProcessingStage.UPLOADED.value
+                await processing_repo.mark_job_running(job.id, stage=ProcessingStage.UPLOADED)
+                await session.commit()
 
-        state = ProcessingState(document=document, job_id=job.id)
+        if embeddings_only:
+            state = await self._load_state_for_embedding_retry(document_id, job.id)
+            if state is None:
+                logger.warning(
+                    "Document %s is not ready for embedding retry; skipping",
+                    document_id,
+                )
+                return
+            stages = (ProcessingStage.EMBEDDINGS,)
+        else:
+            state = ProcessingState(document=document, job_id=job.id)
+            stages = PIPELINE_STAGES
 
         try:
-            for stage in PIPELINE_STAGES:
+            for stage in stages:
                 await self._ensure_can_continue(document_id, job.id)
 
                 async with self._database.session_scope() as session:
@@ -205,9 +227,20 @@ class ProcessingService:
                     await self._persist_rejected(document_id, job.id, state)
                     return
 
-            await self._persist_success(document_id, job.id, state)
+            await self._persist_success(document_id, job.id, state, embeddings_only=embeddings_only)
         except ProcessingPausedError:
             logger.info("Processing paused for document %s", document_id)
+        except RateLimitError as exc:
+            logger.warning("Rate limit hit for document %s: %s", document_id, exc)
+            stage = self._infer_rate_limited_stage(state, embeddings_only=embeddings_only)
+            await self._persist_rate_limited(
+                document_id,
+                job.id,
+                state,
+                stage=stage,
+                error=exc,
+                embeddings_only=embeddings_only,
+            )
         except (
             OcrError,
             ClassificationError,
@@ -222,6 +255,22 @@ class ProcessingService:
         except Exception as exc:
             logger.exception("Document %s processing failed unexpectedly", document_id)
             await self._persist_failure(document_id, job.id, str(exc))
+
+    async def retry_deferred_jobs(self) -> int:
+        """Re-enqueue jobs whose rate-limit cooldown has elapsed."""
+        if self._database is None:
+            return 0
+
+        requeued = 0
+        async with self._database.session_scope() as session:
+            processing_repo = self._repo(session)
+            jobs = await processing_repo.list_jobs_ready_for_retry()
+            for job in jobs:
+                await processing_repo.requeue_job_for_retry(job.id)
+                requeued += 1
+            await session.commit()
+
+        return requeued
 
     async def reprocess_document(self, document_id: UUID) -> None:
         if self._database is None:
@@ -257,11 +306,127 @@ class ProcessingService:
                 await session.commit()
                 raise ProcessingPausedError(f"Job {job_id} is paused")
 
-    async def _persist_success(
+    async def _load_state_for_embedding_retry(
+        self,
+        document_id: UUID,
+        job_id: UUID,
+    ) -> ProcessingState | None:
+        if self._database is None:
+            return None
+
+        async with self._database.session_scope() as session:
+            document = await DocumentRepository(session).get_by_id(document_id)
+            if document is None or not document.extracted_text:
+                return None
+
+            state = ProcessingState(document=document, job_id=job_id)
+            state.ocr_result = OcrResult(
+                text=document.extracted_text,
+                page_count=document.page_count or 1,
+            )
+            return state
+
+    def _infer_rate_limited_stage(
+        self,
+        state: ProcessingState,
+        *,
+        embeddings_only: bool,
+    ) -> ProcessingStage:
+        if embeddings_only or state.embedding is None and state.summary_output is not None:
+            return ProcessingStage.EMBEDDINGS
+        if state.classification is None:
+            return ProcessingStage.CLASSIFICATION
+        if state.metadata_output is None or state.summary_output is None:
+            return ProcessingStage.METADATA_SUMMARY
+        if state.ocr_result is None:
+            return ProcessingStage.OCR
+        return ProcessingStage.EMBEDDINGS
+
+    def _calculate_retry_delay(self, retry_count: int, retry_after: float | None) -> float:
+        base = retry_after or self._settings.embedding_retry_base_seconds
+        scaled = base * (1.5 ** max(retry_count, 0))
+        return min(scaled, self._settings.embedding_retry_max_seconds)
+
+    async def _persist_rate_limited(
         self,
         document_id: UUID,
         job_id: UUID,
         state: ProcessingState,
+        *,
+        stage: ProcessingStage,
+        error: RateLimitError,
+        embeddings_only: bool = False,
+    ) -> None:
+        if self._database is None:
+            return
+
+        async with self._database.session_scope() as session:
+            processing_repo = self._repo(session)
+            job = await processing_repo.get_job(job_id)
+            retry_count = job.retry_count if job is not None else 0
+
+        delay = self._calculate_retry_delay(retry_count, error.retry_after_seconds)
+        next_retry_at = datetime.now(UTC) + timedelta(seconds=delay)
+        wait_reason = "rate_limit"
+        message = (
+            f"Waiting for {error.provider_label} rate limit. "
+            f"Retry scheduled in {int(delay)} seconds."
+        )
+
+        if (
+            stage == ProcessingStage.EMBEDDINGS
+            and not embeddings_only
+            and state.metadata_output is not None
+            and state.summary_output is not None
+            and state.classification is not None
+            and state.ocr_result is not None
+        ):
+            await self._persist_document_result(
+                document_id,
+                job_id,
+                state,
+                embedding_vector=None,
+                embedding_model_name=None,
+                embedding_dimensions=None,
+                document_status=DocumentStatus.COMPLETED,
+                processing_status=ProcessingStage.EMBEDDINGS,
+                mark_job_completed=False,
+            )
+
+        async with self._database.session_scope() as session:
+            await self._repo(session).mark_job_rate_limited(
+                job_id,
+                stage=stage,
+                next_retry_at=next_retry_at,
+                wait_reason=wait_reason,
+                error_message=message,
+            )
+            document = await DocumentRepository(session).get_by_id(document_id)
+            if document is not None and stage != ProcessingStage.EMBEDDINGS:
+                document.processing_status = stage.value
+            await self._repo(session).increment_retry_count(job_id)
+            await session.commit()
+
+        logger.info(
+            "Document %s deferred until %s (stage=%s, delay=%.0fs)",
+            document_id,
+            next_retry_at.isoformat(),
+            stage.value,
+            delay,
+        )
+
+    async def _persist_document_result(
+        self,
+        document_id: UUID,
+        job_id: UUID,
+        state: ProcessingState,
+        *,
+        embedding_vector: list[float] | None,
+        embedding_model_name: str | None,
+        embedding_dimensions: int | None,
+        document_status: DocumentStatus,
+        processing_status: ProcessingStage,
+        mark_job_completed: bool,
     ) -> None:
         if self._database is None:
             return
@@ -269,14 +434,12 @@ class ProcessingService:
         classification = state.classification
         metadata_output = state.metadata_output
         summary_output = state.summary_output
-        embedding = state.embedding
         ocr_result = state.ocr_result
 
         if (
             classification is None
             or metadata_output is None
             or summary_output is None
-            or embedding is None
             or ocr_result is None
         ):
             raise ValueError("Processing state is incomplete")
@@ -329,16 +492,72 @@ class ProcessingService:
                 highlights=summary.highlights,
                 summary_model_name=summary_output.model_name,
                 timeline_events=timeline_payload,
-                embedding_vector=embedding.vector,
-                embedding_model_name=embedding.model_name,
-                embedding_dimensions=embedding.dimensions,
-                status=DocumentStatus.COMPLETED,
+                embedding_vector=embedding_vector,
+                embedding_model_name=embedding_model_name,
+                embedding_dimensions=embedding_dimensions,
+                status=document_status,
+            )
+            document = await DocumentRepository(session).get_by_id(document_id)
+            if document is not None:
+                document.processing_status = processing_status.value
+                if mark_job_completed:
+                    document.processed_at = datetime.now(UTC)
+
+            if mark_job_completed:
+                await self._repo(session).mark_job_completed(job_id)
+            await session.commit()
+
+    async def _persist_success(
+        self,
+        document_id: UUID,
+        job_id: UUID,
+        state: ProcessingState,
+        *,
+        embeddings_only: bool = False,
+    ) -> None:
+        embedding = state.embedding
+        if embedding is None:
+            raise ValueError("Processing state is incomplete")
+
+        if embeddings_only:
+            await self._persist_embedding_only(document_id, job_id, state, embedding)
+            return
+
+        await self._persist_document_result(
+            document_id,
+            job_id,
+            state,
+            embedding_vector=embedding.vector,
+            embedding_model_name=embedding.model_name,
+            embedding_dimensions=embedding.dimensions,
+            document_status=DocumentStatus.COMPLETED,
+            processing_status=ProcessingStage.READY,
+            mark_job_completed=True,
+        )
+
+    async def _persist_embedding_only(
+        self,
+        document_id: UUID,
+        job_id: UUID,
+        state: ProcessingState,
+        embedding: DocumentEmbeddingResult,
+    ) -> None:
+        if self._database is None:
+            return
+
+        from app.ai.embeddings.vector import PgVectorStore
+
+        async with self._database.session_scope() as session:
+            await PgVectorStore(session).upsert(
+                document_id,
+                embedding=embedding.vector,
+                model_name=embedding.model_name,
+                dimensions=embedding.dimensions,
             )
             document = await DocumentRepository(session).get_by_id(document_id)
             if document is not None:
                 document.processing_status = ProcessingStage.READY.value
                 document.processed_at = datetime.now(UTC)
-
             await self._repo(session).mark_job_completed(job_id)
             await session.commit()
 

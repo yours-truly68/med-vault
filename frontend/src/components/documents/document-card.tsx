@@ -15,6 +15,10 @@ import {
   formatProcessingError,
   formatRelativeTime,
 } from "@/lib/format";
+import {
+  getProcessingStatusMessage,
+  isDocumentProcessing,
+} from "@/lib/processing";
 import { cn } from "@/lib/utils";
 import type { Document, FamilyMember } from "@/types/api";
 
@@ -50,7 +54,7 @@ function cardSnippet(document: Document): {
 
   if (document.status === "pending" || document.status === "processing") {
     return {
-      text: "Extracting text and summary. This usually takes a minute.",
+      text: getProcessingStatusMessage(document),
       tone: "default",
     };
   }
@@ -126,6 +130,7 @@ export function DocumentCard({
             snippet.tone === "error"
               ? "text-destructive/90"
               : "text-muted-foreground",
+            isDocumentProcessing(document) && "text-primary/90",
           )}
         >
           {snippet.text}

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.database.enums import DocumentStatus, DocumentType
+from app.core.database.enums import DocumentStatus, DocumentType, ProcessingJobStatus, ProcessingStage
 
 
 class MedicineResponse(BaseModel):
@@ -52,6 +52,18 @@ class DocumentSummaryResponse(BaseModel):
     highlights: list[str] = Field(default_factory=list)
 
 
+class DocumentProcessingJobResponse(BaseModel):
+    id: UUID
+    stage: ProcessingStage
+    status: ProcessingJobStatus
+    error_message: str | None = None
+    retry_count: int = 0
+    next_retry_at: datetime | None = None
+    wait_reason: str | None = None
+    started_at: datetime | None = None
+    updated_at: datetime
+
+
 class DocumentUploadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,6 +74,8 @@ class DocumentUploadResponse(BaseModel):
     file_size_bytes: int
     page_count: int | None = None
     status: DocumentStatus
+    processing_status: ProcessingStage
+    processing_job: DocumentProcessingJobResponse | None = None
     document_type: DocumentType | None = None
     document_date: date | None = None
     classification_confidence: float | None = None
@@ -70,6 +84,8 @@ class DocumentUploadResponse(BaseModel):
     summary: DocumentSummaryResponse | None = None
     extracted_text: str | None = None
     processing_error: str | None = None
+    uploaded_at: datetime | None = None
+    processed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

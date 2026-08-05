@@ -7,9 +7,23 @@ import logging
 
 import httpx
 
+from app.ai.errors import RateLimitError
+
 logger = logging.getLogger(__name__)
 
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+
+def _parse_retry_after(response: httpx.Response | None) -> float | None:
+    if response is None:
+        return None
+    header = response.headers.get("Retry-After")
+    if not header:
+        return None
+    try:
+        return float(header)
+    except ValueError:
+        return None
 
 
 async def post_json_with_retry(
@@ -20,7 +34,8 @@ async def post_json_with_retry(
     timeout: float,
     error_label: str,
     max_retries: int = 5,
-    base_delay_seconds: float = 15.0,
+    base_delay_seconds: float = 5.0,
+    max_delay_seconds: float = 120.0,
 ) -> dict:
     last_error: Exception | None = None
 
@@ -35,13 +50,36 @@ async def post_json_with_retry(
                 return data
         except httpx.HTTPStatusError as exc:
             last_error = exc
-            if exc.response.status_code not in RETRYABLE_STATUS_CODES or attempt == max_retries:
+            status = exc.response.status_code if exc.response is not None else None
+            if status == 429:
+                retry_after = _parse_retry_after(exc.response)
+                delay = min(
+                    retry_after if retry_after is not None else base_delay_seconds * attempt,
+                    max_delay_seconds,
+                )
+                if attempt == max_retries:
+                    raise RateLimitError(
+                        f"{error_label} rate limit exceeded after {max_retries} attempts",
+                        retry_after_seconds=delay,
+                        provider_label=error_label,
+                    ) from exc
+                logger.warning(
+                    "%s returned 429; retrying in %.0fs (%s/%s)",
+                    error_label,
+                    delay,
+                    attempt,
+                    max_retries,
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            if status not in RETRYABLE_STATUS_CODES or attempt == max_retries:
                 raise
-            delay = base_delay_seconds * attempt
+            delay = min(base_delay_seconds * attempt, max_delay_seconds)
             logger.warning(
                 "%s returned %s; retrying in %.0fs (%s/%s)",
                 error_label,
-                exc.response.status_code,
+                status,
                 delay,
                 attempt,
                 max_retries,
@@ -51,7 +89,7 @@ async def post_json_with_retry(
             last_error = exc
             if attempt == max_retries:
                 raise
-            delay = base_delay_seconds * attempt
+            delay = min(base_delay_seconds * attempt, max_delay_seconds)
             logger.warning(
                 "%s request failed; retrying in %.0fs (%s/%s): %s",
                 error_label,

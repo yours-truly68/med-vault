@@ -45,6 +45,8 @@ class ProcessingJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    wait_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="processing_jobs")
 

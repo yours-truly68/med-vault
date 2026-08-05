@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, CalendarDays, FileText, Trash2, User } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { DocumentStatusBadge } from "@/components/documents";
+import { DocumentStatusBadge, ProcessingPipeline } from "@/components/documents";
 import { DocumentTypeBadge } from "@/components/documents/document-type-badge";
 import { ErrorState, LoadingGrid, PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -528,14 +528,17 @@ export function DocumentDetailPageContent({
         </Card>
       ) : null}
 
+      {document.status === "pending" ||
+      document.status === "processing" ||
+      document.status === "failed" ? (
+        <ProcessingPipeline document={document} />
+      ) : null}
+
       {showEmptyPrimary ? (
-        <section className="surface-panel px-5 py-10 text-center">
-          <p className="font-heading text-base font-semibold tracking-tight">
-            Still processing
-          </p>
-          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground text-pretty">
-            Summary and extracted text will appear here when OCR and AI
-            extraction finish.
+        <section className="surface-panel px-5 py-6 text-center">
+          <p className="text-sm text-muted-foreground text-pretty">
+            Summary and extracted text will appear below when processing
+            completes.
           </p>
         </section>
       ) : null}

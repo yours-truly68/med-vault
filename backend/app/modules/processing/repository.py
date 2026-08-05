@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -95,8 +95,58 @@ class ProcessingRepository:
                 stage=ProcessingStage.FAILED.value,
                 completed_at=now,
                 error_message=error_message,
+                next_retry_at=None,
+                wait_reason=None,
             )
         )
+
+    async def mark_job_rate_limited(
+        self,
+        job_id: UUID,
+        *,
+        stage: ProcessingStage,
+        next_retry_at: datetime,
+        wait_reason: str,
+        error_message: str | None = None,
+    ) -> None:
+        await self._session.execute(
+            update(ProcessingJob)
+            .where(ProcessingJob.id == job_id)
+            .values(
+                status=ProcessingJobStatus.RATE_LIMITED.value,
+                stage=stage.value,
+                error_message=error_message,
+                next_retry_at=next_retry_at,
+                wait_reason=wait_reason,
+            )
+        )
+
+    async def list_jobs_ready_for_retry(self, *, limit: int = 20) -> list[ProcessingJob]:
+        now = datetime.now(UTC)
+        result = await self._session.execute(
+            select(ProcessingJob)
+            .where(
+                ProcessingJob.status == ProcessingJobStatus.RATE_LIMITED.value,
+                ProcessingJob.next_retry_at.is_not(None),
+                ProcessingJob.next_retry_at <= now,
+            )
+            .order_by(ProcessingJob.next_retry_at.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def requeue_job_for_retry(self, job_id: UUID) -> ProcessingJob | None:
+        job = await self.get_job(job_id)
+        if job is None:
+            return None
+
+        job.status = ProcessingJobStatus.PENDING.value
+        job.next_retry_at = None
+        job.wait_reason = None
+        job.error_message = None
+        await self._session.flush()
+        await self._session.refresh(job)
+        return job
 
     async def increment_retry_count(self, job_id: UUID) -> None:
         job = await self.get_job(job_id)
@@ -133,6 +183,14 @@ class ProcessingRepository:
         await self._session.flush()
         await self._session.refresh(job)
         return job
+
+    async def count_rate_limited_jobs(self) -> int:
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(ProcessingJob)
+            .where(ProcessingJob.status == ProcessingJobStatus.RATE_LIMITED.value)
+        )
+        return int(result.scalar_one())
 
     async def get_or_create_control(self) -> ProcessingControl:
         result = await self._session.execute(select(ProcessingControl).limit(1))

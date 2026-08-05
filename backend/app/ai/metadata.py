@@ -13,6 +13,7 @@ from app.ai.llm.errors import LLMProviderError
 from app.ai.llm.provider import ChatMessage, LLMProvider
 from app.ai.prompts.loader import render_prompt
 from app.ai.schemas.metadata import ExtractedDocumentMetadata
+from app.ai.text_compact import compact_document_text
 from app.core.database.enums import DocumentType
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class MetadataExtractor:
         if not text:
             raise MetadataExtractionError("Cannot extract metadata from empty document text")
 
-        truncated = text[:MAX_DOCUMENT_CHARS]
+        truncated = compact_document_text(text, max_chars=MAX_DOCUMENT_CHARS)
         prompt = render_prompt(
             "metadata",
             document_text=truncated,

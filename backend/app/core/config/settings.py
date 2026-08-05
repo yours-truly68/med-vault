@@ -51,9 +51,13 @@ class Settings(BaseSettings):
 
     # OCR / document processing
     tesseract_cmd: str | None = None
-    ocr_pdf_dpi: int = 200
+    ocr_pdf_dpi: int = 150
     ocr_min_native_text_chars: int = 20
+    ocr_max_workers: int = 4
     document_worker_concurrency: int = 2
+    embedding_retry_base_seconds: float = 60.0
+    embedding_retry_max_seconds: float = 900.0
+    deferred_retry_poll_seconds: float = 30.0
 
     # LLM / classification
     llm_provider: str = "openai"

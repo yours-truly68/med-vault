@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from app.ai.llm.errors import LLMProviderError
 from app.ai.llm.provider import ChatMessage, LLMProvider
 from app.ai.prompts.loader import render_prompt
+from app.ai.text_compact import compact_document_text
 from app.core.database.enums import DocumentType
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ class DocumentClassifier:
                 model_name="heuristic",
             )
 
-        truncated = text[:MAX_DOCUMENT_CHARS]
+        truncated = compact_document_text(text, max_chars=MAX_DOCUMENT_CHARS)
         prompt = render_prompt(
             "classify",
             document_text=truncated,

@@ -20,6 +20,8 @@ class ProcessingJobResponse(BaseModel):
     paused_at: datetime | None
     error_message: str | None
     retry_count: int
+    next_retry_at: datetime | None = None
+    wait_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -29,6 +31,7 @@ class ProcessingStatusResponse(BaseModel):
     active_jobs: int
     paused_jobs: int
     pending_jobs: int
+    rate_limited_jobs: int = 0
 
 
 class ProcessingControlResponse(BaseModel):

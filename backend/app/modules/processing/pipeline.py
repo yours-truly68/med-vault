@@ -33,8 +33,7 @@ logger = logging.getLogger(__name__)
 PIPELINE_STAGES: tuple[ProcessingStage, ...] = (
     ProcessingStage.OCR,
     ProcessingStage.CLASSIFICATION,
-    ProcessingStage.METADATA,
-    ProcessingStage.SUMMARY,
+    ProcessingStage.METADATA_SUMMARY,
     ProcessingStage.EMBEDDINGS,
 )
 
@@ -116,10 +115,8 @@ class ProcessingPipeline:
             return await self._run_ocr(state)
         if stage == ProcessingStage.CLASSIFICATION:
             return await self._run_classification(state)
-        if stage == ProcessingStage.METADATA:
-            return await self._run_metadata(state)
-        if stage == ProcessingStage.SUMMARY:
-            return await self._run_summary(state)
+        if stage in {ProcessingStage.METADATA, ProcessingStage.SUMMARY, ProcessingStage.METADATA_SUMMARY}:
+            return await self._run_metadata_and_summary(state)
         if stage == ProcessingStage.EMBEDDINGS:
             return await self._run_embeddings(state)
         raise ValueError(f"Unsupported pipeline stage: {stage}")
@@ -153,41 +150,39 @@ class ProcessingPipeline:
             state.rejected = True
         return state
 
-    async def _run_metadata(self, state: ProcessingState) -> ProcessingState:
+    async def _run_metadata_and_summary(self, state: ProcessingState) -> ProcessingState:
         if state.ocr_result is None or state.classification is None:
-            raise MetadataExtractionError("Classification must run before metadata")
+            raise MetadataExtractionError("Classification must run before metadata and summary")
 
-        result = await self._metadata.extract(
+        metadata_task = self._metadata.extract(
             state.ocr_result.text,
             document_type=state.classification.category,
         )
+        summary_task = self._summarizer.summarize(
+            state.ocr_result.text,
+            document_type=state.classification.category,
+        )
+        metadata_result, summary_result = await asyncio.gather(metadata_task, summary_task)
+
         state.metadata_output = MetadataOutput(
-            metadata=result.metadata,
-            model_name=result.model_name,
-        )
-        return state
-
-    async def _run_summary(self, state: ProcessingState) -> ProcessingState:
-        if state.ocr_result is None or state.classification is None:
-            raise SummarizationError("Classification must run before summary")
-
-        result = await self._summarizer.summarize(
-            state.ocr_result.text,
-            document_type=state.classification.category,
+            metadata=metadata_result.metadata,
+            model_name=metadata_result.model_name,
         )
         state.summary_output = SummaryOutput(
-            summary=result.summary,
-            model_name=result.model_name,
+            summary=summary_result.summary,
+            model_name=summary_result.model_name,
         )
-        if state.metadata_output is not None:
-            state.timeline_events = build_timeline_events(
-                state.document,
-                state.metadata_output.metadata,
-                result.summary,
-            )
+        state.timeline_events = build_timeline_events(
+            state.document,
+            metadata_result.metadata,
+            summary_result.summary,
+        )
         return state
 
     async def _run_embeddings(self, state: ProcessingState) -> ProcessingState:
+        if state.rejected:
+            raise EmbeddingError("Skipping embeddings for rejected document")
+
         if state.ocr_result is None:
             raise EmbeddingError("OCR must run before embeddings")
 

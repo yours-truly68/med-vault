@@ -6,7 +6,7 @@ from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config.settings import Settings
-from app.core.database.enums import DocumentStatus, DocumentType, ProcessingStage
+from app.core.database.enums import DocumentStatus, DocumentType, ProcessingJobStatus, ProcessingStage
 from app.core.exceptions import ValidationError
 from app.modules.auth.schemas import MessageResponse
 from app.modules.documents.exceptions import DocumentNotFoundError
@@ -15,6 +15,7 @@ from app.modules.documents.repository import DocumentRepository
 from app.modules.documents.schemas import (
     DocumentListResponse,
     DocumentMetadataResponse,
+    DocumentProcessingJobResponse,
     DocumentSummaryResponse,
     DocumentUploadListResponse,
     DocumentUploadResponse,
@@ -222,6 +223,7 @@ class DocumentService:
             )
 
         summary_response = self._summary_response(document)
+        processing_job = self._processing_job_response(document)
 
         return DocumentUploadResponse(
             id=document.id,
@@ -231,6 +233,8 @@ class DocumentService:
             file_size_bytes=document.file_size_bytes,
             page_count=document.page_count,
             status=DocumentStatus(document.status),
+            processing_status=ProcessingStage(document.processing_status),
+            processing_job=processing_job,
             document_type=DocumentType(document.document_type)
             if document.document_type
             else None,
@@ -241,8 +245,31 @@ class DocumentService:
             summary=summary_response,
             extracted_text=document.extracted_text,
             processing_error=document.processing_error,
+            uploaded_at=document.uploaded_at,
+            processed_at=document.processed_at,
             created_at=document.created_at,
             updated_at=document.updated_at,
+        )
+
+    def _processing_job_response(
+        self,
+        document: Document,
+    ) -> DocumentProcessingJobResponse | None:
+        jobs = document.__dict__.get("processing_jobs")
+        if not isinstance(jobs, list) or not jobs:
+            return None
+
+        latest = max(jobs, key=lambda job: job.created_at)
+        return DocumentProcessingJobResponse(
+            id=latest.id,
+            stage=ProcessingStage(latest.stage),
+            status=ProcessingJobStatus(latest.status),
+            error_message=latest.error_message,
+            retry_count=latest.retry_count,
+            next_retry_at=latest.next_retry_at,
+            wait_reason=latest.wait_reason,
+            started_at=latest.started_at,
+            updated_at=latest.updated_at,
         )
 
     def _summary_response(self, document: Document) -> DocumentSummaryResponse | None:

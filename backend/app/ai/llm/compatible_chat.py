@@ -6,6 +6,7 @@ import logging
 
 import httpx
 
+from app.ai.errors import RateLimitError
 from app.ai.http_retry import post_json_with_retry
 from app.ai.llm.errors import LLMProviderError
 from app.ai.llm.provider import ChatCompletion, ChatMessage
@@ -65,6 +66,8 @@ class OpenAICompatibleChatProvider:
                 timeout=self._timeout,
                 error_label=f"{self._provider_label} API",
             )
+        except RateLimitError:
+            raise
         except httpx.HTTPStatusError as exc:
             detail = exc.response.text[:500] if exc.response is not None else str(exc)
             raise LLMProviderError(

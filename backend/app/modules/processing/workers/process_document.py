@@ -18,6 +18,7 @@ async def process_document(
     *,
     database: Database,
     settings: Settings,
+    embeddings_only: bool = False,
 ) -> None:
     service = ProcessingService(session=None, settings=settings, database=database)
-    await service.process_document(document_id)
+    await service.process_document(document_id, embeddings_only=embeddings_only)
