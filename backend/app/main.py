@@ -12,7 +12,6 @@ from app.core.database.session import Database
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.middleware import RequestLoggingMiddleware
-from app.processing.processor import DocumentProcessor
 from app.workers.in_process import InProcessDocumentWorker
 
 logger = logging.getLogger(__name__)
@@ -24,9 +23,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database = Database(settings)
     app.state.database = database
 
-    processor = DocumentProcessor(database, settings)
     document_worker = InProcessDocumentWorker(
-        processor,
+        database,
+        settings,
         concurrency=settings.document_worker_concurrency,
     )
     await document_worker.start()

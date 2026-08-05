@@ -19,9 +19,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { useDocuments } from "@/hooks/use-documents";
 import { useFamilyMembers } from "@/hooks/use-family-members";
+import { useTimelineEvents } from "@/hooks/use-timeline";
 import { formatDate } from "@/lib/format";
 import { useUiStore } from "@/stores/ui-store";
-import type { Document } from "@/types/api";
+import type { Document, TimelineEvent } from "@/types/api";
 
 function getTimelineDate(document: Document): string {
   return (
@@ -129,12 +130,66 @@ function groupDocumentsByMonth(documents: Document[]): Map<string, Document[]> {
   return groups;
 }
 
+function groupEventsByMonth(events: TimelineEvent[]): Map<string, TimelineEvent[]> {
+  const groups = new Map<string, TimelineEvent[]>();
+
+  for (const event of events) {
+    const date = new Date(event.event_date);
+    const key = Number.isNaN(date.getTime())
+      ? "Unknown"
+      : new Intl.DateTimeFormat("en-US", {
+          month: "long",
+          year: "numeric",
+        }).format(date);
+
+    const existing = groups.get(key) ?? [];
+    existing.push(event);
+    groups.set(key, existing);
+  }
+
+  for (const [key, items] of groups) {
+    items.sort(
+      (a, b) =>
+        new Date(b.event_date).getTime() - new Date(a.event_date).getTime(),
+    );
+    groups.set(key, items);
+  }
+
+  return groups;
+}
+
+function matchesEventSearch(event: TimelineEvent, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+
+  const haystack = [
+    event.title,
+    event.description,
+    event.event_type,
+    event.original_filename,
+    event.source_field,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(q);
+}
+
+function formatEventType(eventType: TimelineEvent["event_type"]): string {
+  return eventType.replace(/_/g, " ");
+}
+
 export function TimelinePageContent() {
   const documentsQuery = useDocuments();
   const familyMembersQuery = useFamilyMembers();
   const selectedFamilyMemberId = useUiStore(
     (state) => state.selectedFamilyMemberId,
   );
+  const timelineQuery = useTimelineEvents({
+    family_member_id: selectedFamilyMemberId,
+    limit: 200,
+  });
   const [searchQuery, setSearchQuery] = useState("");
 
   const memberMap = useMemo(() => {
@@ -167,7 +222,28 @@ export function TimelinePageContent() {
     [filteredDocuments],
   );
 
-  if (documentsQuery.isLoading || familyMembersQuery.isLoading) {
+  const filteredEvents = useMemo(() => {
+    const items = timelineQuery.data?.items ?? [];
+    return items
+      .filter((event) => matchesEventSearch(event, searchQuery))
+      .sort(
+        (a, b) =>
+          new Date(b.event_date).getTime() - new Date(a.event_date).getTime(),
+      );
+  }, [timelineQuery.data?.items, searchQuery]);
+
+  const groupedEvents = useMemo(
+    () => groupEventsByMonth(filteredEvents),
+    [filteredEvents],
+  );
+
+  const useStructuredTimeline = (timelineQuery.data?.total ?? 0) > 0;
+
+  if (
+    documentsQuery.isLoading ||
+    familyMembersQuery.isLoading ||
+    timelineQuery.isLoading
+  ) {
     return (
       <>
         <PageHeader
@@ -179,20 +255,27 @@ export function TimelinePageContent() {
     );
   }
 
-  if (documentsQuery.isError) {
+  if (documentsQuery.isError || timelineQuery.isError) {
     return (
       <>
         <PageHeader title="Timeline" />
         <ErrorState
           message="We couldn't load your timeline."
-          onRetry={() => void documentsQuery.refetch()}
+          onRetry={() => {
+            void documentsQuery.refetch();
+            void timelineQuery.refetch();
+          }}
         />
       </>
     );
   }
 
+  const totalEvents = timelineQuery.data?.total ?? 0;
   const totalDocuments = documentsQuery.data?.total ?? 0;
   const hasActiveSearch = searchQuery.trim().length > 0;
+  const isEmpty = useStructuredTimeline
+    ? totalEvents === 0
+    : totalDocuments === 0;
 
   return (
     <>
@@ -202,17 +285,113 @@ export function TimelinePageContent() {
         actions={<FamilyMemberFilter className="w-full sm:w-56" />}
       />
 
-      {totalDocuments === 0 ? (
+      {isEmpty ? (
         <EmptyState
           icon={CalendarDays}
           title="Your timeline is empty"
-          description="As you upload documents, MedVault will place them along a chronological health timeline."
+          description="As you upload and process documents, MedVault builds a structured health timeline from diagnoses, labs, medications, and visits."
           action={
             <Button asChild>
               <Link href="/upload">Upload documents</Link>
             </Button>
           }
         />
+      ) : useStructuredTimeline ? (
+        <div className="mx-auto max-w-3xl space-y-6">
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search events, diagnoses, labs, or documents"
+              className="pl-9"
+              aria-label="Search timeline"
+            />
+          </div>
+
+          {filteredEvents.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="No matching events"
+              description={
+                hasActiveSearch
+                  ? `Nothing matched “${searchQuery.trim()}”. Try a diagnosis, medication, or date.`
+                  : "No events for this filter."
+              }
+              action={
+                hasActiveSearch ? (
+                  <Button variant="outline" onClick={() => setSearchQuery("")}>
+                    Clear search
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="space-y-8">
+              {Array.from(groupedEvents.entries()).map(([month, events]) => (
+                <section key={month} className="space-y-4">
+                  <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+                    {month}
+                  </h2>
+                  <div className="relative space-y-4 border-l border-border pl-6">
+                    {events.map((event) => {
+                      const member = memberMap.get(event.family_member_id);
+                      return (
+                        <Card
+                          key={event.id}
+                          className="interactive-card relative border-border/80 bg-card/80 backdrop-blur-sm"
+                        >
+                          <span className="absolute top-6 -left-[1.9rem] size-3 rounded-full border-2 border-background bg-primary" />
+                          <CardHeader className="space-y-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0 space-y-1">
+                                <CardTitle className="text-base capitalize">
+                                  {event.title}
+                                </CardTitle>
+                                {event.description ? (
+                                  <CardDescription className="line-clamp-3">
+                                    {event.description}
+                                  </CardDescription>
+                                ) : null}
+                                <CardDescription>
+                                  {member?.name} · {formatDate(event.event_date)}
+                                  {event.original_filename
+                                    ? ` · ${event.original_filename}`
+                                    : ""}
+                                </CardDescription>
+                              </div>
+                              <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium capitalize text-muted-foreground">
+                                {formatEventType(event.event_type)}
+                              </span>
+                              {event.document_type ? (
+                                <DocumentTypeBadge type={event.document_type} />
+                              ) : null}
+                            </div>
+                          </CardHeader>
+                          {event.document_id ? (
+                            <CardContent>
+                              <Button variant="outline" size="sm" asChild>
+                                <Link href={`/documents/${event.document_id}`}>
+                                  View source document
+                                </Link>
+                              </Button>
+                            </CardContent>
+                          ) : null}
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </div>
       ) : (
         <div className="mx-auto max-w-3xl space-y-6">
           <div className="relative">

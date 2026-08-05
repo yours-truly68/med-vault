@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -21,10 +22,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
 from app.core.database.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.core.database.enums import EMBEDDING_DIMENSIONS, DocumentStatus
+from app.core.database.enums import EMBEDDING_DIMENSIONS, DocumentStatus, ProcessingStage
 
 if TYPE_CHECKING:
     from app.modules.family_members.models.models import FamilyMember
+    from app.modules.processing.models.models import ProcessingJob
     from app.modules.users.models.models import User
 
 
@@ -66,6 +68,14 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    processing_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ProcessingStage.UPLOADED.value,
+        server_default=ProcessingStage.UPLOADED.value,
+    )
+    uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="documents")
     family_member: Mapped[FamilyMember] = relationship(back_populates="documents")
@@ -93,6 +103,11 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         passive_deletes=True,
     )
     timeline_events: Mapped[list[TimelineEvent]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    processing_jobs: Mapped[list["ProcessingJob"]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -198,3 +213,72 @@ class Embedding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             f"<Embedding id={self.id} document_id={self.document_id} "
             f"model_name={self.model_name!r}>"
         )
+
+
+class LabMeasurement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "lab_measurements"
+    __table_args__ = (
+        Index("ix_lab_measurements_family_member_test", "family_member_id", "test_name"),
+        Index("ix_lab_measurements_user_measured_at", "user_id", "measured_at"),
+        Index("ix_lab_measurements_document_id", "document_id"),
+    )
+
+    document_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    family_member_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("family_members.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    test_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reference_low: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    reference_high: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    measured_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    document: Mapped[Document] = relationship(back_populates="lab_measurements")
+
+
+class TimelineEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "timeline_events"
+    __table_args__ = (
+        Index(
+            "ix_timeline_events_user_family_date",
+            "user_id",
+            "family_member_id",
+            "event_date",
+        ),
+        Index("ix_timeline_events_document_id", "document_id"),
+    )
+
+    document_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    family_member_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("family_members.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_date: Mapped[date] = mapped_column(Date, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_field: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    document: Mapped[Document] = relationship(back_populates="timeline_events")

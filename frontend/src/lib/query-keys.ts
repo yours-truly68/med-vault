@@ -13,4 +13,10 @@ export const queryKeys = {
   search: {
     query: (params: string) => ["search", params] as const,
   },
+  timeline: {
+    all: ["timeline"] as const,
+  },
+  health: {
+    trends: (familyMemberId: string) => ["health-trends", familyMemberId] as const,
+  },
 } as const;

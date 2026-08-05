@@ -1,7 +1,4 @@
 # MedVault
----
-image.png
----
 
 AI-powered medical document organizer — MVP.
 

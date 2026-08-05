@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
-from app.ai.llm.openai_provider import LLMProviderError
+from app.ai.llm.errors import LLMProviderError
 from app.ai.llm.provider import ChatMessage, LLMProvider
 from app.ai.prompts.loader import render_prompt
 from app.ai.schemas.metadata import ExtractedDocumentMetadata
@@ -55,7 +55,7 @@ class MetadataExtractor:
             completion = await self._provider.complete(
                 [ChatMessage(role="user", content=prompt)],
                 temperature=0.0,
-                max_tokens=1200,
+                max_tokens=2200,
             )
         except LLMProviderError as exc:
             raise MetadataExtractionError(str(exc)) from exc

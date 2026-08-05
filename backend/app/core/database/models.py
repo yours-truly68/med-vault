@@ -6,7 +6,10 @@ from app.modules.documents.models import (
     Document,
     DocumentMetadata,
     Embedding,
+    LabMeasurement,
+    TimelineEvent,
 )
+from app.modules.processing.models import ProcessingControl, ProcessingJob
 from app.modules.family_members.models import FamilyMember
 from app.modules.users.models import User
 
@@ -15,6 +18,10 @@ __all__ = [
     "Document",
     "DocumentMetadata",
     "Embedding",
+    "LabMeasurement",
+    "ProcessingControl",
+    "ProcessingJob",
+    "TimelineEvent",
     "FamilyMember",
     "RefreshToken",
     "User",

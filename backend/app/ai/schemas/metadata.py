@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -27,6 +28,38 @@ class MedicineItem(BaseModel):
         return value
 
 
+class LabMeasurementItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    test_name: str = Field(min_length=1, max_length=255)
+    value: float
+    unit: str | None = Field(default=None, max_length=64)
+    reference_low: float | None = None
+    reference_high: float | None = None
+
+    @field_validator("test_name", "unit", mode="before")
+    @classmethod
+    def clean_string(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+    @field_validator("value", "reference_low", "reference_high", mode="before")
+    @classmethod
+    def coerce_number(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, (int, float, Decimal)):
+            return float(value)
+        if isinstance(value, str):
+            stripped = value.strip().replace(",", "")
+            if not stripped or stripped.lower() in {"null", "none", "n/a", "na"}:
+                return None
+            return float(stripped)
+        return value
+
+
 class ExtractedDocumentMetadata(BaseModel):
     """Structured metadata returned by the extraction LLM."""
 
@@ -39,6 +72,15 @@ class ExtractedDocumentMetadata(BaseModel):
     specialization: str | None = Field(default=None, max_length=255)
     diagnosis: str | None = Field(default=None, max_length=2000)
     medicines: list[MedicineItem] = Field(default_factory=list)
+    lab_measurements: list[LabMeasurementItem] = Field(default_factory=list)
+    procedures: list[str] = Field(default_factory=list)
+    allergies: list[str] = Field(default_factory=list)
+    medical_devices: list[str] = Field(default_factory=list)
+    vaccinations: list[str] = Field(default_factory=list)
+    follow_up: str | None = Field(default=None, max_length=4000)
+    admission_date: date | None = None
+    discharge_date: date | None = None
+    summary: str | None = Field(default=None, max_length=4000)
 
     @field_validator(
         "patient_name",
@@ -46,6 +88,8 @@ class ExtractedDocumentMetadata(BaseModel):
         "hospital_name",
         "specialization",
         "diagnosis",
+        "follow_up",
+        "summary",
         mode="before",
     )
     @classmethod
@@ -57,7 +101,7 @@ class ExtractedDocumentMetadata(BaseModel):
             return stripped
         return value
 
-    @field_validator("document_date", mode="before")
+    @field_validator("document_date", "admission_date", "discharge_date", mode="before")
     @classmethod
     def parse_document_date(cls, value: Any) -> Any:
         if value is None:
@@ -70,7 +114,6 @@ class ExtractedDocumentMetadata(BaseModel):
             stripped = value.strip()
             if not stripped or stripped.lower() in {"null", "none", "n/a", "na"}:
                 return None
-            # Prefer ISO; accept common day-first / month-first variants lightly.
             for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"):
                 try:
                     return datetime.strptime(stripped[:10], fmt).date()
@@ -98,3 +141,31 @@ class ExtractedDocumentMetadata(BaseModel):
                         cleaned.append(item)
             return cleaned
         return []
+
+    @field_validator("lab_measurements", mode="before")
+    @classmethod
+    def coerce_lab_measurements(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return []
+        cleaned: list[Any] = []
+        for item in value:
+            if isinstance(item, dict) and item.get("test_name"):
+                cleaned.append(item)
+        return cleaned
+
+    @field_validator(
+        "procedures",
+        "allergies",
+        "medical_devices",
+        "vaccinations",
+        mode="before",
+    )
+    @classmethod
+    def coerce_string_list(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]

@@ -8,3 +8,5 @@ export {
 } from "./use-family-members";
 export { useAskChat } from "./use-chat";
 export { useSearchDocuments } from "./use-search";
+export { useTimelineEvents } from "./use-timeline";
+export { useHealthTrends } from "./use-health-trends";

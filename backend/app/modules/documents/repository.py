@@ -1,5 +1,5 @@
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime, UTC
 import json
 
 from sqlalchemy import select
@@ -7,8 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.ai.embeddings.pg_vector_store import PgVectorStore
-from app.core.database.enums import DocumentStatus, DocumentType
-from app.modules.documents.models import AISummary, Document, DocumentMetadata
+from app.core.database.enums import DocumentStatus, DocumentType, ProcessingStage
+from app.modules.documents.models import (
+    AISummary,
+    Document,
+    DocumentMetadata,
+    Embedding,
+    LabMeasurement,
+    TimelineEvent,
+)
 
 
 class DocumentRepository:
@@ -34,6 +41,8 @@ class DocumentRepository:
             content_type=content_type,
             file_size_bytes=file_size_bytes,
             status=status.value,
+            processing_status=ProcessingStage.UPLOADED.value,
+            uploaded_at=datetime.now(UTC),
         )
         self._session.add(document)
         await self._session.flush()
@@ -53,6 +62,7 @@ class DocumentRepository:
             .options(
                 selectinload(Document.document_metadata),
                 selectinload(Document.ai_summary),
+                selectinload(Document.lab_measurements),
             )
             .where(Document.user_id == user_id)
             .order_by(Document.created_at.desc())
@@ -73,6 +83,7 @@ class DocumentRepository:
             .options(
                 selectinload(Document.document_metadata),
                 selectinload(Document.ai_summary),
+                selectinload(Document.lab_measurements),
             )
             .where(Document.id == document_id)
         )
@@ -127,18 +138,30 @@ class DocumentRepository:
             return None
 
         document.status = DocumentStatus.PENDING.value
+        document.processing_status = ProcessingStage.UPLOADED.value
         document.processing_error = None
         document.document_type = None
+        document.processed_at = None
         await PgVectorStore(self._session).delete(document_id)
+        await self._delete_derived_rows(document_id)
         await self._session.flush()
         await self._session.refresh(document)
         return document
+
+    async def _delete_derived_rows(self, document_id: UUID) -> None:
+        for model in (LabMeasurement, TimelineEvent):
+            result = await self._session.execute(
+                select(model).where(model.document_id == document_id)
+            )
+            for row in result.scalars().all():
+                await self._session.delete(row)
 
     async def set_processing_result(
         self,
         document_id: UUID,
         *,
         extracted_text: str,
+        page_count: int | None = None,
         document_type: DocumentType,
         confidence: float,
         reasoning: str,
@@ -149,12 +172,23 @@ class DocumentRepository:
         document_date: date | None = None,
         specialization: str | None = None,
         diagnosis: str | None = None,
+        clinical_summary: str | None = None,
+        admission_date: date | None = None,
+        discharge_date: date | None = None,
+        follow_up: str | None = None,
         medicines: list[dict] | None = None,
+        lab_measurements: list[dict] | None = None,
+        procedures: list[str] | None = None,
+        allergies: list[str] | None = None,
+        medical_devices: list[str] | None = None,
+        vaccinations: list[str] | None = None,
         metadata_model_name: str | None = None,
         short_summary: str | None = None,
         key_findings: list[str] | None = None,
         important_dates: list[dict] | None = None,
+        highlights: list[str] | None = None,
         summary_model_name: str | None = None,
+        timeline_events: list[dict] | None = None,
         embedding_vector: list[float] | None = None,
         embedding_model_name: str | None = None,
         embedding_dimensions: int | None = None,
@@ -165,6 +199,7 @@ class DocumentRepository:
             return None
 
         document.extracted_text = extracted_text
+        document.page_count = page_count
         document.document_type = document_type.value
         document.document_date = document_date
         document.status = status.value
@@ -176,6 +211,17 @@ class DocumentRepository:
         metadata.doctor_name = doctor_name
         metadata.hospital_name = hospital_name
         metadata.document_date = document_date
+        metadata.specialization = specialization
+        metadata.diagnosis = diagnosis
+        metadata.clinical_summary = clinical_summary
+        metadata.admission_date = admission_date
+        metadata.discharge_date = discharge_date
+        metadata.follow_up = follow_up
+        metadata.medicines = medicines or []
+        metadata.procedures = procedures or []
+        metadata.allergies = allergies or []
+        metadata.medical_devices = medical_devices or []
+        metadata.vaccinations = vaccinations or []
 
         extra = dict(metadata.extra or {})
         extra.update(
@@ -183,13 +229,42 @@ class DocumentRepository:
                 "classification_confidence": confidence,
                 "classification_reasoning": reasoning,
                 "classification_model": model_name,
-                "specialization": specialization,
-                "diagnosis": diagnosis,
-                "medicines": medicines or [],
                 "metadata_model": metadata_model_name,
             }
         )
         metadata.extra = extra
+
+        await self._delete_derived_rows(document_id)
+
+        measured_at = document_date or admission_date
+        for item in lab_measurements or []:
+            self._session.add(
+                LabMeasurement(
+                    document_id=document_id,
+                    user_id=document.user_id,
+                    family_member_id=document.family_member_id,
+                    test_name=str(item["test_name"]),
+                    value=float(item["value"]),
+                    unit=item.get("unit"),
+                    reference_low=item.get("reference_low"),
+                    reference_high=item.get("reference_high"),
+                    measured_at=measured_at,
+                )
+            )
+
+        for event in timeline_events or []:
+            self._session.add(
+                TimelineEvent(
+                    document_id=document_id,
+                    user_id=document.user_id,
+                    family_member_id=document.family_member_id,
+                    event_date=event["event_date"],
+                    event_type=event["event_type"],
+                    title=event["title"],
+                    description=event.get("description"),
+                    source_field=event.get("source_field"),
+                )
+            )
 
         if short_summary:
             await self._upsert_summary(
@@ -197,6 +272,7 @@ class DocumentRepository:
                 summary=short_summary,
                 key_findings=key_findings or [],
                 important_dates=important_dates or [],
+                highlights=highlights or [],
                 model_name=summary_model_name,
             )
 
@@ -232,31 +308,30 @@ class DocumentRepository:
         summary: str,
         key_findings: list[str],
         important_dates: list[dict],
+        highlights: list[str],
         model_name: str | None,
     ) -> AISummary:
         result = await self._session.execute(
             select(AISummary).where(AISummary.document_id == document_id)
         )
         row = result.scalar_one_or_none()
-        findings_payload = json.dumps(
-            {
-                "findings": key_findings,
-                "important_dates": important_dates,
-            },
-            ensure_ascii=True,
-        )
+        findings_payload = json.dumps(key_findings, ensure_ascii=True)
 
         if row is None:
             row = AISummary(
                 document_id=document_id,
                 summary=summary,
                 key_findings=findings_payload,
+                important_dates=important_dates,
+                highlights=highlights,
                 model_name=model_name,
             )
             self._session.add(row)
         else:
             row.summary = summary
             row.key_findings = findings_payload
+            row.important_dates = important_dates
+            row.highlights = highlights
             row.model_name = model_name
 
         await self._session.flush()
@@ -268,6 +343,7 @@ class DocumentRepository:
             .options(
                 selectinload(Document.document_metadata),
                 selectinload(Document.ai_summary),
+                selectinload(Document.lab_measurements),
             )
             .where(
                 Document.id == document_id,
@@ -310,6 +386,7 @@ class DocumentRepository:
 
         # Ensure no stale embeddings remain if this was a reprocess.
         await PgVectorStore(self._session).delete(document_id)
+        await self._delete_derived_rows(document_id)
 
         await self._session.flush()
         await self._session.refresh(document)

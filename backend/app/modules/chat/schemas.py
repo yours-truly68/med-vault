@@ -20,8 +20,26 @@ class ChatCitation(BaseModel):
     document_date: date | None = None
     family_member_id: UUID
     score: float
+    page: int | None = None
     excerpt: str | None = None
     summary: str | None = None
+
+
+class ChatSupportingDetails(BaseModel):
+    patient: str | None = None
+    doctor: str | None = None
+    hospital: str | None = None
+    diagnosis: str | None = None
+    medicines: list[str] = Field(default_factory=list)
+    lab_values: list[str] = Field(default_factory=list)
+    procedures: list[str] = Field(default_factory=list)
+    follow_up: str | None = None
+
+
+class ChatTimelineEntry(BaseModel):
+    date: str | None = None
+    label: str | None = None
+    detail: str | None = None
 
 
 class ChatAskResponse(BaseModel):
@@ -29,4 +47,6 @@ class ChatAskResponse(BaseModel):
     answer: str
     insufficient_context: bool
     citations: list[ChatCitation]
+    supporting_details: ChatSupportingDetails | None = None
+    timeline: list[ChatTimelineEntry] = Field(default_factory=list)
     model_name: str | None = None

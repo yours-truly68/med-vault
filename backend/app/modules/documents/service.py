@@ -1,11 +1,12 @@
 from uuid import UUID
 import json
+from datetime import UTC, datetime
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config.settings import Settings
-from app.core.database.enums import DocumentStatus, DocumentType
+from app.core.database.enums import DocumentStatus, DocumentType, ProcessingStage
 from app.core.exceptions import ValidationError
 from app.modules.auth.schemas import MessageResponse
 from app.modules.documents.exceptions import DocumentNotFoundError
@@ -17,10 +18,13 @@ from app.modules.documents.schemas import (
     DocumentSummaryResponse,
     DocumentUploadListResponse,
     DocumentUploadResponse,
+    LabMeasurementResponse,
+    MedicineResponse,
 )
 from app.modules.documents.storage import LocalDocumentStorage, SavedFile
 from app.modules.family_members.exceptions import FamilyMemberNotFoundError
 from app.modules.family_members.repository import FamilyMemberRepository
+from app.modules.processing.repository import ProcessingRepository
 from app.modules.users.models.models import User
 from app.workers.interface import DocumentWorker
 
@@ -75,6 +79,7 @@ class DocumentService:
                     file_size_bytes=saved.file_size_bytes,
                     status=DocumentStatus.PENDING,
                 )
+                await ProcessingRepository(self._session).create_job(document.id)
                 uploaded.append(self._to_response(document))
                 document_ids.append(document.id)
         except Exception:
@@ -135,6 +140,12 @@ class DocumentService:
             raise DocumentNotFoundError()
 
         await self._repository.reset_for_reprocessing(document_id)
+        await ProcessingRepository(self._session).create_job(document_id)
+        document = await self._repository.get_by_id(document_id)
+        if document is not None:
+            document.processing_status = ProcessingStage.UPLOADED.value
+            document.uploaded_at = datetime.now(UTC)
+            document.processed_at = None
         await self._session.commit()
 
         if self._worker is not None:
@@ -148,7 +159,6 @@ class DocumentService:
             raise FamilyMemberNotFoundError()
 
     def _to_response(self, document: Document) -> DocumentUploadResponse:
-        # Use __dict__ to avoid async lazy-load of an unloaded relationship.
         metadata = document.__dict__.get("document_metadata")
         extra = (metadata.extra if metadata is not None else None) or {}
         confidence = extra.get("classification_confidence")
@@ -156,27 +166,59 @@ class DocumentService:
 
         metadata_response = None
         if metadata is not None:
-            raw_medicines = extra.get("medicines") or []
-            medicines = []
+            raw_medicines = metadata.medicines or extra.get("medicines") or []
+            medicines: list[MedicineResponse] = []
             if isinstance(raw_medicines, list):
                 for item in raw_medicines:
                     if isinstance(item, dict) and item.get("name"):
                         medicines.append(
-                            {
-                                "name": item.get("name"),
-                                "dosage": item.get("dosage"),
-                                "frequency": item.get("frequency"),
-                                "duration": item.get("duration"),
-                            }
+                            MedicineResponse(
+                                name=str(item.get("name")),
+                                dosage=item.get("dosage"),
+                                frequency=item.get("frequency"),
+                                duration=item.get("duration"),
+                            )
                         )
+
+            lab_measurements: list[LabMeasurementResponse] = []
+            lab_rows = document.__dict__.get("lab_measurements")
+            if isinstance(lab_rows, list) and lab_rows:
+                for row in lab_rows:
+                    lab_measurements.append(
+                        LabMeasurementResponse(
+                            test_name=row.test_name,
+                            value=float(row.value),
+                            unit=row.unit,
+                            reference_low=(
+                                float(row.reference_low)
+                                if row.reference_low is not None
+                                else None
+                            ),
+                            reference_high=(
+                                float(row.reference_high)
+                                if row.reference_high is not None
+                                else None
+                            ),
+                        )
+                    )
+
             metadata_response = DocumentMetadataResponse(
                 patient_name=metadata.patient_name,
                 doctor_name=metadata.doctor_name,
                 hospital_name=metadata.hospital_name,
                 document_date=metadata.document_date,
-                specialization=extra.get("specialization"),
-                diagnosis=extra.get("diagnosis"),
+                specialization=metadata.specialization or extra.get("specialization"),
+                diagnosis=metadata.diagnosis or extra.get("diagnosis"),
+                clinical_summary=metadata.clinical_summary,
+                admission_date=metadata.admission_date,
+                discharge_date=metadata.discharge_date,
+                follow_up=metadata.follow_up,
                 medicines=medicines,
+                lab_measurements=lab_measurements,
+                procedures=list(metadata.procedures or []),
+                allergies=list(metadata.allergies or []),
+                medical_devices=list(metadata.medical_devices or []),
+                vaccinations=list(metadata.vaccinations or []),
             )
 
         summary_response = self._summary_response(document)
@@ -187,6 +229,7 @@ class DocumentService:
             original_filename=document.original_filename,
             content_type=document.content_type,
             file_size_bytes=document.file_size_bytes,
+            page_count=document.page_count,
             status=DocumentStatus(document.status),
             document_type=DocumentType(document.document_type)
             if document.document_type
@@ -209,6 +252,15 @@ class DocumentService:
 
         findings: list[str] = []
         important_dates: list[dict] = []
+        highlights: list[str] = list(ai_summary.highlights or [])
+
+        if ai_summary.important_dates:
+            important_dates = [
+                item
+                for item in ai_summary.important_dates
+                if isinstance(item, dict) and item.get("date") and item.get("label")
+            ]
+
         raw = ai_summary.key_findings
         if raw:
             try:
@@ -217,11 +269,12 @@ class DocumentService:
                     findings = [
                         item for item in (payload.get("findings") or []) if isinstance(item, str)
                     ]
-                    important_dates = [
-                        item
-                        for item in (payload.get("important_dates") or [])
-                        if isinstance(item, dict) and item.get("date") and item.get("label")
-                    ]
+                    if not important_dates:
+                        important_dates = [
+                            item
+                            for item in (payload.get("important_dates") or [])
+                            if isinstance(item, dict) and item.get("date") and item.get("label")
+                        ]
                 elif isinstance(payload, list):
                     findings = [item for item in payload if isinstance(item, str)]
             except json.JSONDecodeError:
@@ -231,4 +284,5 @@ class DocumentService:
             short_summary=ai_summary.summary,
             key_findings=findings,
             important_dates=important_dates,
+            highlights=highlights,
         )

@@ -57,7 +57,16 @@ class Settings(BaseSettings):
 
     # LLM / classification
     llm_provider: str = "openai"
+    llm_api_key: str | None = None
+    llm_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LLM_BASE_URL"),
+    )
     openai_api_key: str | None = None
+    groq_api_key: str | None = None
+    vercel_ai_api_key: str | None = None
+    ollama_api_key: str | None = None
+    local_llm_api_key: str | None = None
     openai_base_url: str = Field(
         default="https://api.openai.com/v1",
         validation_alias=AliasChoices("DEFAULT_BASE_URL", "OPENAI_BASE_URL"),
@@ -67,6 +76,11 @@ class Settings(BaseSettings):
 
     # Embeddings
     embedding_provider: str = "openai"
+    embedding_api_key: str | None = None
+    embedding_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EMBEDDING_BASE_URL"),
+    )
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
     embedding_timeout_seconds: float = 60.0

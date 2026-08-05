@@ -37,3 +37,22 @@ class TimelineEventType(StrEnum):
     FOLLOW_UP = "follow_up"
     VISIT = "visit"
     IMAGING = "imaging"
+
+
+class ProcessingStage(StrEnum):
+    UPLOADED = "uploaded"
+    OCR = "ocr"
+    CLASSIFICATION = "classification"
+    METADATA = "metadata"
+    SUMMARY = "summary"
+    EMBEDDINGS = "embeddings"
+    READY = "ready"
+    FAILED = "failed"
+
+
+class ProcessingJobStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"

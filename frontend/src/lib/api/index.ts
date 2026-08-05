@@ -5,3 +5,5 @@ export * from "./documents";
 export * from "./family-members";
 export * from "./chat";
 export * from "./search";
+export * from "./timeline";
+export * from "./health";

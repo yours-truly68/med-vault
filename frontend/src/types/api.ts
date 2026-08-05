@@ -56,6 +56,14 @@ export type Medicine = {
   duration: string | null;
 };
 
+export type LabMeasurement = {
+  test_name: string;
+  value: number;
+  unit: string | null;
+  reference_low: number | null;
+  reference_high: number | null;
+};
+
 export type DocumentMetadata = {
   patient_name: string | null;
   doctor_name: string | null;
@@ -63,7 +71,16 @@ export type DocumentMetadata = {
   document_date: string | null;
   specialization: string | null;
   diagnosis: string | null;
+  clinical_summary: string | null;
+  admission_date: string | null;
+  discharge_date: string | null;
+  follow_up: string | null;
   medicines: Medicine[];
+  lab_measurements: LabMeasurement[];
+  procedures: string[];
+  allergies: string[];
+  medical_devices: string[];
+  vaccinations: string[];
 };
 
 export type ImportantDate = {
@@ -75,6 +92,7 @@ export type DocumentSummary = {
   short_summary: string;
   key_findings: string[];
   important_dates: ImportantDate[];
+  highlights: string[];
 };
 
 export type Document = {
@@ -83,6 +101,7 @@ export type Document = {
   original_filename: string;
   content_type: string;
   file_size_bytes: number;
+  page_count: number | null;
   status: DocumentStatus;
   document_type: DocumentType | null;
   document_date: string | null;
@@ -177,8 +196,26 @@ export type ChatCitation = {
   document_date: string | null;
   family_member_id: string;
   score: number;
+  page: number | null;
   excerpt: string | null;
   summary: string | null;
+};
+
+export type ChatSupportingDetails = {
+  patient: string | null;
+  doctor: string | null;
+  hospital: string | null;
+  diagnosis: string | null;
+  medicines: string[];
+  lab_values: string[];
+  procedures: string[];
+  follow_up: string | null;
+};
+
+export type ChatTimelineEntry = {
+  date: string | null;
+  label: string | null;
+  detail: string | null;
 };
 
 export type ChatAskResponse = {
@@ -186,7 +223,63 @@ export type ChatAskResponse = {
   answer: string;
   insufficient_context: boolean;
   citations: ChatCitation[];
+  supporting_details: ChatSupportingDetails | null;
+  timeline: ChatTimelineEntry[];
   model_name: string | null;
+};
+
+export type TimelineEventType =
+  | "document"
+  | "admission"
+  | "discharge"
+  | "diagnosis"
+  | "procedure"
+  | "lab_result"
+  | "medication"
+  | "allergy"
+  | "device"
+  | "vaccination"
+  | "follow_up"
+  | "visit"
+  | "imaging";
+
+export type TimelineEvent = {
+  id: string;
+  document_id: string;
+  family_member_id: string;
+  event_date: string;
+  event_type: TimelineEventType;
+  title: string;
+  description: string | null;
+  source_field: string | null;
+  document_type: DocumentType | null;
+  original_filename: string | null;
+};
+
+export type TimelineListResponse = {
+  items: TimelineEvent[];
+  total: number;
+};
+
+export type HealthTrendPoint = {
+  date: string;
+  value: number;
+  unit: string | null;
+  reference_low: number | null;
+  reference_high: number | null;
+  document_id: string;
+};
+
+export type HealthTrendSeries = {
+  test_name: string;
+  unit: string | null;
+  points: HealthTrendPoint[];
+};
+
+export type HealthTrendsResponse = {
+  family_member_id: string;
+  series: HealthTrendSeries[];
+  total_measurements: number;
 };
 
 export type ApiErrorBody = {

@@ -6,7 +6,9 @@ import asyncio
 import logging
 from uuid import UUID
 
-from app.processing.processor import DocumentProcessor
+from app.core.config.settings import Settings
+from app.core.database.session import Database
+from app.modules.processing.workers.process_document import process_document
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +16,13 @@ logger = logging.getLogger(__name__)
 class InProcessDocumentWorker:
     def __init__(
         self,
-        processor: DocumentProcessor,
+        database: Database,
+        settings: Settings,
         *,
         concurrency: int = 2,
     ) -> None:
-        self._processor = processor
+        self._database = database
+        self._settings = settings
         self._concurrency = max(1, concurrency)
         self._queue: asyncio.Queue[UUID] = asyncio.Queue()
         self._semaphore = asyncio.Semaphore(self._concurrency)
@@ -71,6 +75,10 @@ class InProcessDocumentWorker:
     async def _run_job(self, document_id: UUID) -> None:
         async with self._semaphore:
             try:
-                await self._processor.process(document_id)
+                await process_document(
+                    document_id,
+                    database=self._database,
+                    settings=self._settings,
+                )
             except Exception:
                 logger.exception("Unhandled error processing document %s", document_id)

@@ -13,6 +13,14 @@ class MedicineResponse(BaseModel):
     duration: str | None = None
 
 
+class LabMeasurementResponse(BaseModel):
+    test_name: str
+    value: float
+    unit: str | None = None
+    reference_low: float | None = None
+    reference_high: float | None = None
+
+
 class DocumentMetadataResponse(BaseModel):
     patient_name: str | None = None
     doctor_name: str | None = None
@@ -20,7 +28,16 @@ class DocumentMetadataResponse(BaseModel):
     document_date: date | None = None
     specialization: str | None = None
     diagnosis: str | None = None
+    clinical_summary: str | None = None
+    admission_date: date | None = None
+    discharge_date: date | None = None
+    follow_up: str | None = None
     medicines: list[MedicineResponse] = Field(default_factory=list)
+    lab_measurements: list[LabMeasurementResponse] = Field(default_factory=list)
+    procedures: list[str] = Field(default_factory=list)
+    allergies: list[str] = Field(default_factory=list)
+    medical_devices: list[str] = Field(default_factory=list)
+    vaccinations: list[str] = Field(default_factory=list)
 
 
 class ImportantDateResponse(BaseModel):
@@ -32,6 +49,7 @@ class DocumentSummaryResponse(BaseModel):
     short_summary: str
     key_findings: list[str] = Field(default_factory=list)
     important_dates: list[ImportantDateResponse] = Field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
 
 
 class DocumentUploadResponse(BaseModel):
@@ -42,6 +60,7 @@ class DocumentUploadResponse(BaseModel):
     original_filename: str
     content_type: str
     file_size_bytes: int
+    page_count: int | None = None
     status: DocumentStatus
     document_type: DocumentType | None = None
     document_date: date | None = None

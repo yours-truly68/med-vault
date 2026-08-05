@@ -7,6 +7,7 @@ extractable text are treated as scanned and run through Tesseract OCR.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import pymupdf
@@ -19,6 +20,13 @@ logger = logging.getLogger(__name__)
 
 PDF_CONTENT_TYPE = "application/pdf"
 IMAGE_CONTENT_TYPES = frozenset({"image/jpeg", "image/png"})
+PAGE_MARKER_TEMPLATE = "--- Page {page} ---\n"
+
+
+@dataclass(frozen=True)
+class OcrResult:
+    text: str
+    page_count: int
 
 
 class OcrError(Exception):
@@ -33,6 +41,9 @@ class OcrService:
             pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
 
     def extract_text(self, file_path: Path, content_type: str) -> str:
+        return self.extract(file_path, content_type).text
+
+    def extract(self, file_path: Path, content_type: str) -> OcrResult:
         if not file_path.is_file():
             raise OcrError(f"File not found: {file_path}")
 
@@ -45,7 +56,16 @@ class OcrService:
 
         raise OcrError(f"Unsupported content type for OCR: {content_type}")
 
-    def _extract_from_pdf(self, file_path: Path) -> str:
+    def get_page_count(self, file_path: Path, content_type: str) -> int:
+        normalized_type = content_type.split(";", 1)[0].strip().lower()
+        if normalized_type == PDF_CONTENT_TYPE:
+            with pymupdf.open(file_path) as document:
+                return max(document.page_count, 1)
+        if normalized_type in IMAGE_CONTENT_TYPES:
+            return 1
+        return 1
+
+    def _extract_from_pdf(self, file_path: Path) -> OcrResult:
         try:
             with pymupdf.open(file_path) as document:
                 if document.page_count == 0:
@@ -65,13 +85,16 @@ class OcrService:
                     )
                     page_texts.append(self._ocr_page(page))
 
-                return self._join_page_texts(page_texts)
+                return OcrResult(
+                    text=self._join_page_texts(page_texts),
+                    page_count=document.page_count,
+                )
         except OcrError:
             raise
         except Exception as exc:
             raise OcrError(f"Failed to process PDF: {exc}") from exc
 
-    def _extract_from_image(self, file_path: Path) -> str:
+    def _extract_from_image(self, file_path: Path) -> OcrResult:
         try:
             with Image.open(file_path) as image:
                 text = pytesseract.image_to_string(image).strip()
@@ -83,7 +106,10 @@ class OcrService:
         if not text:
             raise OcrError("No text could be extracted from image")
 
-        return text
+        return OcrResult(
+            text=PAGE_MARKER_TEMPLATE.format(page=1) + text,
+            page_count=1,
+        )
 
     def _ocr_page(self, page: pymupdf.Page) -> str:
         try:
@@ -98,4 +124,7 @@ class OcrService:
         if not non_empty:
             raise OcrError("No text could be extracted from PDF")
 
-        return "\n\n".join(non_empty)
+        blocks: list[str] = []
+        for index, text in enumerate(non_empty, start=1):
+            blocks.append(PAGE_MARKER_TEMPLATE.format(page=index) + text)
+        return "\n\n".join(blocks)

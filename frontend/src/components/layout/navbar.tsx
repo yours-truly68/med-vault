@@ -17,17 +17,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useCurrentUser, useLogout } from "@/hooks/use-auth";
+import { getUserInitials } from "@/lib/user";
 import { useAuthStore } from "@/stores/auth-store";
 import { useUiStore } from "@/stores/ui-store";
-
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 export function Navbar() {
   const user = useAuthStore((state) => state.user);
@@ -58,7 +50,7 @@ export function Navbar() {
               <Button variant="ghost" className="h-9 gap-2 rounded-xl px-2">
                 <Avatar className="size-7 rounded-xl">
                   <AvatarFallback className="rounded-xl text-[10px]">
-                    {user ? getInitials(user.full_name) : "MV"}
+                    {user ? getUserInitials(user.full_name) : "MV"}
                   </AvatarFallback>
                 </Avatar>
                 <span className="hidden max-w-32 truncate text-sm sm:inline">

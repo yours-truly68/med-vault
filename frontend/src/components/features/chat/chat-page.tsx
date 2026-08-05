@@ -104,6 +104,7 @@ function CitationCard({ citation }: { citation: ChatCitation }) {
         {citation.document_date
           ? ` · ${formatDate(citation.document_date)}`
           : ""}
+        {citation.page ? ` · p. ${citation.page}` : ""}
       </p>
       {citation.excerpt ? (
         <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
@@ -111,6 +112,94 @@ function CitationCard({ citation }: { citation: ChatCitation }) {
         </p>
       ) : null}
     </Link>
+  );
+}
+
+function SupportingDetailsPanel({
+  details,
+}: {
+  details: NonNullable<ChatAskResponse["supporting_details"]>;
+}) {
+  const sections = [
+    { label: "Patient", value: details.patient },
+    { label: "Doctor", value: details.doctor },
+    { label: "Hospital", value: details.hospital },
+    { label: "Diagnosis", value: details.diagnosis },
+    { label: "Follow-up", value: details.follow_up },
+  ].filter((section) => section.value);
+
+  const lists = [
+    { label: "Medicines", items: details.medicines },
+    { label: "Lab values", items: details.lab_values },
+    { label: "Procedures", items: details.procedures },
+  ].filter((section) => section.items.length > 0);
+
+  if (sections.length === 0 && lists.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border/50 pt-3">
+      <p className="text-xs font-medium text-muted-foreground">
+        Supporting details
+      </p>
+      {sections.length > 0 ? (
+        <dl className="grid gap-2 sm:grid-cols-2">
+          {sections.map((section) => (
+            <div key={section.label} className="rounded-lg bg-muted/40 px-3 py-2">
+              <dt className="text-[0.6875rem] font-medium text-muted-foreground">
+                {section.label}
+              </dt>
+              <dd className="mt-0.5 text-sm text-foreground">{section.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {lists.map((section) => (
+        <div key={section.label}>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">
+            {section.label}
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            {section.items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TimelinePanel({
+  timeline,
+}: {
+  timeline: ChatAskResponse["timeline"];
+}) {
+  if (!timeline.length) return null;
+
+  return (
+    <div className="space-y-2 border-t border-border/50 pt-3">
+      <p className="text-xs font-medium text-muted-foreground">
+        Related timeline
+      </p>
+      <ul className="space-y-2">
+        {timeline.map((entry, index) => (
+          <li
+            key={`${entry.date ?? "unknown"}-${entry.label ?? "event"}-${index}`}
+            className="rounded-lg border border-border/60 bg-background/60 px-3 py-2"
+          >
+            <p className="text-sm font-medium text-foreground">
+              {entry.label ?? "Event"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {entry.date ? formatDate(entry.date) : "Date unknown"}
+              {entry.detail ? ` · ${entry.detail}` : ""}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -156,6 +245,14 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             Limited matching documents were found for this question. Try a more
             specific ask, or upload related records.
           </p>
+        ) : null}
+
+        {message.response?.supporting_details ? (
+          <SupportingDetailsPanel details={message.response.supporting_details} />
+        ) : null}
+
+        {message.response?.timeline?.length ? (
+          <TimelinePanel timeline={message.response.timeline} />
         ) : null}
 
         {message.response?.citations.length ? (

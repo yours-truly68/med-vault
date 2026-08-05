@@ -7,7 +7,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from app.ai.llm.openai_provider import LLMProviderError
+from app.ai.llm.errors import LLMProviderError
 from app.ai.llm.provider import ChatMessage, LLMProvider
 from app.ai.prompts.loader import render_prompt
 from app.core.database.enums import DocumentType
@@ -34,13 +34,31 @@ class DocumentClassifier:
     def __init__(self, provider: LLMProvider) -> None:
         self._provider = provider
 
-    async def classify(self, extracted_text: str) -> ClassificationResult:
+    async def classify(
+        self,
+        extracted_text: str,
+        *,
+        filename: str,
+        mime_type: str,
+        page_count: int,
+    ) -> ClassificationResult:
         text = extracted_text.strip()
         if not text:
-            raise ClassificationError("Cannot classify empty document text")
+            return ClassificationResult(
+                category=DocumentType.UNRELATED,
+                confidence=0.0,
+                reasoning="OCR produced no readable text.",
+                model_name="heuristic",
+            )
 
         truncated = text[:MAX_DOCUMENT_CHARS]
-        prompt = render_prompt("classify", document_text=truncated)
+        prompt = render_prompt(
+            "classify",
+            document_text=truncated,
+            filename=filename,
+            mime_type=mime_type,
+            page_count=str(page_count),
+        )
 
         try:
             completion = await self._provider.complete(
@@ -65,7 +83,6 @@ class DocumentClassifier:
                 f"Invalid classification payload: {raw[:300]}"
             ) from exc
 
-        # Accept common aliases from the model.
         aliases = {
             "blood_report": DocumentType.LAB_REPORT.value,
             "lab": DocumentType.LAB_REPORT.value,
@@ -79,7 +96,10 @@ class DocumentClassifier:
         category_value = aliases.get(category_raw, category_raw)
 
         if category_value not in VALID_CATEGORIES:
-            raise ClassificationError(f"Unknown category: {category_raw}")
+            # Do not fail the pipeline on noisy model output — treat as other.
+            logger.warning("Unknown classification category %r; defaulting to other", category_raw)
+            category_value = DocumentType.OTHER.value
+            confidence = min(confidence, 0.5)
 
         if not 0.0 <= confidence <= 1.0:
             confidence = max(0.0, min(1.0, confidence))

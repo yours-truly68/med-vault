@@ -160,6 +160,24 @@ function SummarySection({ summary }: { summary: DocumentSummary }) {
             </ul>
           </div>
         ) : null}
+
+        {summary.highlights.length > 0 ? (
+          <div>
+            <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">
+              Highlights
+            </h3>
+            <ul className="divide-y divide-border/70 border-y border-border/70">
+              {summary.highlights.map((highlight) => (
+                <li
+                  key={highlight}
+                  className="py-2.5 text-sm leading-relaxed text-muted-foreground text-pretty"
+                >
+                  {highlight}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </PanelShell>
   );
@@ -208,6 +226,10 @@ function RecordDetailsSection({
     { label: "Hospital", value: metadata?.hospital_name },
     { label: "Diagnosis", value: metadata?.diagnosis },
     { label: "Specialization", value: metadata?.specialization },
+    { label: "Clinical summary", value: metadata?.clinical_summary },
+    { label: "Admission", value: formatDate(metadata?.admission_date) },
+    { label: "Discharge", value: formatDate(metadata?.discharge_date) },
+    { label: "Follow-up", value: metadata?.follow_up },
     {
       label: "Document date",
       value: formatDate(document.document_date ?? metadata?.document_date),
@@ -280,6 +302,78 @@ function RecordDetailsSection({
                   </li>
                 );
               })}
+            </ul>
+          </div>
+        ) : null}
+
+        {metadata && metadata.lab_measurements.length > 0 ? (
+          <div className="mt-5">
+            <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">
+              Laboratory measurements
+            </h3>
+            <div className="overflow-x-auto rounded-md border border-border/70">
+              <table className="w-full min-w-[28rem] text-left text-sm">
+                <thead className="bg-muted/50 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Test</th>
+                    <th className="px-3 py-2 font-medium">Value</th>
+                    <th className="px-3 py-2 font-medium">Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metadata.lab_measurements.map((lab) => {
+                    const reference =
+                      lab.reference_low != null && lab.reference_high != null
+                        ? `${lab.reference_low}–${lab.reference_high}`
+                        : lab.reference_low != null
+                          ? `≥ ${lab.reference_low}`
+                          : lab.reference_high != null
+                            ? `≤ ${lab.reference_high}`
+                            : "—";
+                    return (
+                      <tr
+                        key={`${lab.test_name}-${lab.value}`}
+                        className="border-t border-border/60"
+                      >
+                        <td className="px-3 py-2 font-medium">{lab.test_name}</td>
+                        <td className="px-3 py-2 tabular-nums">
+                          {lab.value}
+                          {lab.unit ? ` ${lab.unit}` : ""}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground tabular-nums">
+                          {reference}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {metadata && metadata.procedures.length > 0 ? (
+          <div className="mt-5">
+            <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">
+              Procedures
+            </h3>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {metadata.procedures.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {metadata && metadata.allergies.length > 0 ? (
+          <div className="mt-5">
+            <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">
+              Allergies
+            </h3>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {metadata.allergies.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
             </ul>
           </div>
         ) : null}

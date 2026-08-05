@@ -1,3 +1,3 @@
-from app.processing.processor import DocumentProcessor
+"""Legacy processing package — prefer app.modules.processing."""
 
-__all__ = ["DocumentProcessor"]
+__all__: list[str] = []

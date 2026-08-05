@@ -55,6 +55,7 @@ class DocumentSummary(BaseModel):
     short_summary: str = Field(min_length=1, max_length=4000)
     key_findings: list[str] = Field(default_factory=list)
     important_dates: list[ImportantDate] = Field(default_factory=list)
+    highlights: list[str] = Field(default_factory=list)
 
     @field_validator("short_summary", mode="before")
     @classmethod
@@ -95,3 +96,14 @@ class DocumentSummary(BaseModel):
             except ValidationError:
                 continue
         return cleaned
+
+    @field_validator("highlights", mode="before")
+    @classmethod
+    def coerce_highlights(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [line.strip() for line in value.splitlines() if line.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []

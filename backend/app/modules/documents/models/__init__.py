@@ -4,6 +4,8 @@ from app.modules.documents.models.models import (
     Document,
     DocumentMetadata,
     Embedding,
+    LabMeasurement,
+    TimelineEvent,
 )
 
 __all__ = [
@@ -13,4 +15,6 @@ __all__ = [
     "DocumentStatus",
     "DocumentType",
     "Embedding",
+    "LabMeasurement",
+    "TimelineEvent",
 ]
